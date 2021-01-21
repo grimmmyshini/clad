@@ -39,7 +39,6 @@ double f(double theta_0, double theta_1, double x) {
 // x, y represents the input and output data respectively
 // size represents the number of samples to be generated
 struct Dataset {
-
   std::vector<double> x;
   std::vector<double> y;
   size_t size = 50;
@@ -47,7 +46,6 @@ struct Dataset {
 
   // Populate the data set with random data
   Dataset() {
-
     // For plotting data later
     std::ofstream out("dataset_gd.dat");
 
