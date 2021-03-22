@@ -299,6 +299,9 @@ namespace clad {
     clang::LookupResult& GetCladTapeBack();
     /// Instantiate clad::tape<T> type.
     clang::QualType GetCladTapeOfType(clang::QualType T);
+
+    friend class ErrorEstimationHandler;
+    friend class EstimationModel;
   };
   /// A class that represents the result of Visit of ForwardModeVisitor.
   /// Stmt() allows to access the original (cloned) Stmt and Stmt_dx() allows
@@ -407,6 +410,9 @@ namespace clad {
     : public clang::ConstStmtVisitor<ReverseModeVisitor, StmtDiff>,
       public VisitorBase {
   private:
+    /// Determines if an error estimation is in process; helps decide whether
+    /// to visit error estimation specific code in calls to VisitStmt
+    bool m_EstimationInFlight = false;
     llvm::SmallVector<const clang::VarDecl*, 16> m_IndependentVars;
     /// In addition to a sequence of forward-accumulated Stmts (m_Blocks), in 
     /// the reverse mode we also accumulate Stmts for the reverse pass which
@@ -574,11 +580,17 @@ namespace clad {
       /// demand in the method.
       clang::Expr* Last();
     };
-
+    /// \brief Build a new pop expression with a different argument
+    /// Similar to CladTapeResult::Last(), in error estimation mode, we sometimes need to 
+    /// emit the same clad::push(_t, ...) with different parameter expression
+    /// \param[in] tapeRef Reference to the tape for which we want to modify the push expression for
+    /// \param[in] arg The new arg to the push call expression
+    /// \returns A clang expression of the modified push call 
+    clang::Expr* PushDiffArgs(clang::Expr* tapeRef, clang::Expr* arg); 
     /// If E is supposed to be stored in a tape, will create a global declaration
     /// of tape of corresponding type and return a result struct with reference
     /// to the tape and constructed calls to push/pop methods.
-    CladTapeResult MakeCladTapeFor(clang::Expr* E);
+    CladTapeResult MakeCladTapeFor(clang::Expr*);
 
   public:
     ReverseModeVisitor(DerivativeBuilder& builder);

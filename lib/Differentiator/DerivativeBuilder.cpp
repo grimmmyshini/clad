@@ -10,6 +10,7 @@
 
 #include "clad/Differentiator/DiffPlanner.h"
 #include "clad/Differentiator/StmtClone.h"
+#include "clad/Differentiator/ErrorEstimator.h"
 
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Expr.h"
@@ -32,6 +33,10 @@
 using namespace clang;
 
 namespace clad {
+
+  // A pointer to a the handler to be used for esstimation requests
+  static std::unique_ptr<ErrorEstimationHandler> errorEstHandler = nullptr;
+
   DerivativeBuilder::DerivativeBuilder(clang::Sema& S, plugin::CladPlugin& P)
     : m_Sema(S), m_CladPlugin(P), m_Context(S.getASTContext()),
       m_NodeCloner(new utils::StmtClone(m_Sema, m_Context)),
@@ -79,9 +84,14 @@ namespace clad {
     } else if (request.Mode == DiffMode::hessian) {
       HessianModeVisitor H(*this);
       result = H.Derive(FD, request);
-    } if (request.Mode == DiffMode::jacobian) {
+    } else if (request.Mode == DiffMode::jacobian) {
       JacobianModeVisitor J(*this);
       result = J.Derive(FD, request);
+    } else if (request.Mode == DiffMode::error_estimation) {
+      // Set the handler and call calculate to begin estimation
+      if (!errorEstHandler)
+        errorEstHandler.reset(new ErrorEstimationHandler(*this));
+      result = errorEstHandler->Calculate(FD, request);
     }
 
     if (result.first)
@@ -323,7 +333,9 @@ namespace clad {
     // For intermediate variables, use numbered names (_t0), for everything
     // else first try a name without number (e.g. first try to use _d_x and
     // use _d_x0 only if _d_x is taken).
-    bool countedName = nameBase.startswith("_") && !nameBase.startswith("_d_");
+    bool countedName = nameBase.startswith("_") &&
+                       !nameBase.startswith("_d_") &&
+                       !nameBase.startswith("_delta_");
     std::size_t idx = 0;
     std::size_t& id = countedName ? m_idCtr[nameBase.str()] : idx;
     std::string idStr = countedName ? std::to_string(id) : "";
@@ -965,12 +977,24 @@ namespace clad {
     return Call;
   }
 
+  Expr* ReverseModeVisitor::PushDiffArgs(Expr* tapeRef, Expr* arg) {
+    LookupResult& Push = GetCladTapePush();
+    CXXScopeSpec CSS;
+    CSS.Extend(m_Context, GetCladNamespace(), noLoc, noLoc);
+    auto PushDRE = m_Sema.BuildDeclarationNameExpr(CSS, Push, /*ADL*/ false).get();
+    Expr* CallArgs[] = { tapeRef, arg };
+    Expr* PushExpr = m_Sema.ActOnCallExpr(getCurrentScope(), PushDRE, noLoc,
+                                          CallArgs, noLoc).get();
+    return PushExpr;
+  }
+
   ReverseModeVisitor::CladTapeResult ReverseModeVisitor::MakeCladTapeFor(Expr* E) {
-    assert(E && "must be provided");
+    assert((E || m_EstimationInFlight) && "must be provided");
     QualType TapeType = GetCladTapeOfType(E->getType());
     LookupResult& Push = GetCladTapePush();
     LookupResult& Pop = GetCladTapePop();
-    Expr* TapeRef = BuildDeclRef(GlobalStoreImpl(TapeType, "_t"));
+    llvm::StringRef prefix = m_EstimationInFlight ? "_EERepl_" + dyn_cast<DeclRefExpr>(E)->getDecl()->getNameAsString(): "_t";
+    Expr* TapeRef = BuildDeclRef(GlobalStoreImpl(TapeType, prefix));
     auto VD = cast<VarDecl>(cast<DeclRefExpr>(TapeRef)->getDecl());
     // Add fake location, since Clang AST does assert(Loc.isValid()) somewhere.
     VD->setLocation(m_Function->getLocation());
@@ -1755,6 +1779,7 @@ namespace clad {
     silenceDiags = !request.VerboseDiags;
     m_Function = FD;
     assert(m_Function && "Must not be null.");
+    m_EstimationInFlight = request.Mode == DiffMode::error_estimation;
 
     DiffParams args {};
     if (request.Args)
@@ -1790,7 +1815,8 @@ namespace clad {
     DeclarationNameInfo name(II, noLoc);
 
     // A vector of types of the gradient function parameters.
-    llvm::SmallVector<QualType, 16> paramTypes(m_Function->getNumParams() + 1);
+    int numExtraParam = request.Mode == DiffMode::error_estimation ? 2 : 1;
+    llvm::SmallVector<QualType, 16> paramTypes(m_Function->getNumParams() + numExtraParam);
     if (request.Mode == DiffMode::jacobian) {
       unsigned lastArgN = m_Function->getNumParams() - 1;
       outputArrayStr = m_Function->getParamDecl(lastArgN)->getNameAsString();
@@ -1806,16 +1832,24 @@ namespace clad {
       paramTypes.back() = m_Function->getParamDecl(lastArgN)->getType();
     } else {
       // The last parameter is the output parameter of the R* type.
-      paramTypes.back() = m_Context.getPointerType(m_Function->getReturnType());
+      paramTypes[paramTypes.size() - numExtraParam] =
+          m_Context.getPointerType(m_Function->getReturnType());
+    }
+    // If we are performing error estimation, our gradient function 
+    // will have an extra argument which will hold the final error value
+    if (request.Mode == DiffMode::error_estimation) {
+      // For now, make sure the error variable is double
+      paramTypes.back() = m_Context.getLValueReferenceType(m_Context.DoubleTy);
     }
     // For a function f of type R(A1, A2, ..., An),
     // the type of the gradient function is void(A1, A2, ..., An, R*).
-    QualType gradientFunctionType =
-      m_Context.getFunctionType(m_Context.VoidTy,
-                                llvm::ArrayRef<QualType>(paramTypes.data(),
-                                                         paramTypes.size()),
-                                // Cast to function pointer.
-                                FunctionProtoType::ExtProtoInfo());
+    // For error estimation, the return type of the function
+    // is void(A1, A2, ..., An, R*, double&)
+    QualType gradientFunctionType = m_Context.getFunctionType(
+        m_Context.VoidTy,
+        llvm::ArrayRef<QualType>(paramTypes.data(), paramTypes.size()),
+        // Cast to function pointer.
+        FunctionProtoType::ExtProtoInfo());
 
     // Create the gradient function declaration.
     FunctionDecl* gradientFD = nullptr;
@@ -1883,17 +1917,31 @@ namespace clad {
           *it = VD;
         return VD;
     });
+
     // The output paremeter "_result".
-    params.back() = ParmVarDecl::Create(m_Context, gradientFD, noLoc,
-                                        noLoc, &m_Context.Idents.get(resultArg()),
-                                        paramTypes.back(),
-                                        m_Context.getTrivialTypeSourceInfo(
-                                          paramTypes.back(), noLoc),
-                                        params.front()->getStorageClass(),
-                                        /* No default value */ nullptr);
-    if (params.back()->getIdentifier())
-      m_Sema.PushOnScopeChains(params.back(), getCurrentScope(),
+    params[params.size() - numExtraParam] = ParmVarDecl::Create(
+        m_Context, gradientFD, noLoc, noLoc, &m_Context.Idents.get(resultArg()),
+        paramTypes[paramTypes.size() - numExtraParam],
+        m_Context.getTrivialTypeSourceInfo(
+            paramTypes[paramTypes.size() - numExtraParam], noLoc),
+        params.front()->getStorageClass(),
+        /* No default value */ nullptr);
+    if (params[params.size() - numExtraParam]->getIdentifier())
+      m_Sema.PushOnScopeChains(params[params.size() - numExtraParam],
+                               getCurrentScope(),
                                /*AddToContext*/ false);
+    // If in error estimation mode, create the error parameter
+    if(request.Mode == DiffMode::error_estimation){
+      // Repeat the above but for the error ouput var "_final_error"
+      params.back() = ParmVarDecl::Create(
+          m_Context, gradientFD, noLoc, noLoc,
+          &m_Context.Idents.get("_final_error"), paramTypes.back(),
+          m_Context.getTrivialTypeSourceInfo(paramTypes.back(), noLoc),
+          params.front()->getStorageClass(), /* No default value */ nullptr);
+      if (params.back()->getIdentifier())
+        m_Sema.PushOnScopeChains(params.back(), getCurrentScope(),
+                                 /*AddToContext*/ false);
+    }
 
     llvm::ArrayRef<ParmVarDecl*> paramsRef = llvm::makeArrayRef(params.data(),
                                                                 params.size());
@@ -1901,7 +1949,10 @@ namespace clad {
     gradientFD->setBody(nullptr);
 
     // Reference to the output parameter.
-    m_Result = BuildDeclRef(params.back());
+    m_Result = BuildDeclRef(params[params.size() - numExtraParam]);
+    // Reference to the final error statement
+    if (request.Mode == DiffMode::error_estimation)
+      errorEstHandler->m_FinalError = BuildDeclRef(params.back());
 
     // Turns output array dimension input into APSInt
     auto PVDTotalArgs = m_Function->getParamDecl((m_Function->getNumParams() - 1));
@@ -1937,6 +1988,7 @@ namespace clad {
       m_Variables[arg] = result_at_i;
       idx += 1;
       m_IndependentVars.push_back(arg);
+      
     }
 
     // Function body scope.
@@ -1964,6 +2016,18 @@ namespace clad {
         addToCurrentBlock(S, forward);
     else
       addToCurrentBlock(Reverse, forward);
+
+    if (request.Mode == DiffMode::error_estimation) {
+      // Finally, add the final error accumulation stmt
+      if (auto addErrorExpr =
+              errorEstHandler->m_EstModel->CalculateAggregateError()) {
+        Expr* finalErr =
+            BuildOp(BO_Assign, errorEstHandler->m_FinalError,
+                    addErrorExpr);
+        addToCurrentBlock(finalErr, forward);
+      }
+    }
+
     Stmt* gradientBody = endBlock();
     m_Derivative->setBody(gradientBody);
 
@@ -1989,6 +2053,10 @@ namespace clad {
     for (Stmt* S : CS->body()) {
       StmtDiff SDiff = DifferentiateSingleStmt(S);
       addToCurrentBlock(SDiff.getStmt(), forward);
+      if  (m_EstimationInFlight && errorEstHandler->m_pushExpr){
+        addToCurrentBlock(errorEstHandler->m_pushExpr, forward);
+        errorEstHandler->m_pushExpr = nullptr;
+      }
       addToCurrentBlock(SDiff.getStmt_dx(), reverse);
     }
     CompoundStmt* Forward = endBlock(forward);
@@ -2486,7 +2554,50 @@ namespace clad {
         if (dfdx()) {
           auto add_assign = BuildOp(BO_AddAssign, it->second, dfdx());
           // Add it to the body statements.
-          addToCurrentBlock(add_assign, reverse);;
+          addToCurrentBlock(add_assign, reverse);
+        }
+        if (m_EstimationInFlight) {
+          auto deltaVar =
+              errorEstHandler->m_EstModel->IsVariableRegistered(
+                  decl);
+          // If a variable not registered before and we are visiting it
+          // It is most likely it is an independent variable since all
+          // variable declarations in the body of a function are registered
+          // (given they are the type we want to register) before they are
+          // referenced.
+          if (!deltaVar) {
+            auto regVar = errorEstHandler->RegisterVariable(decl);
+            // In the case that the variable was not registered and should not
+            // be registered, we should not care
+            if (regVar) {
+              deltaVar = BuildDeclRef(regVar);
+              // Add the _delta_* decl to the global variables
+              addToBlock(BuildDeclStmt(regVar), m_Globals);
+              auto tape = MakeCladTapeFor(BuildDeclRef(decl));
+              auto topExpr = tape.Last();
+              errorEstHandler->m_ReplaceEstVar[decl] =
+                  ErrorEstimationHandler::TapeInfo(tape.Push, tape.Pop,
+                                                   topExpr, tape.Ref);
+              addToBlock(tape.Push, m_Globals);
+            }
+          }
+          // If this is a ref to LHS of assignment operator, do not assign
+          // an error, otherwise, go ahead.
+          if (!errorEstHandler->m_DoNotEmitDelta) {
+            // If we have a delta decl now, the variable should be assigned an
+            // error. Call assign error and do the needful. After getting the
+            // error, simply add it to the reverse block
+            if (deltaVar) {
+              // first check if the current var has a replacement
+              auto replacedExpr = errorEstHandler->GetReplacement(decl);
+              // then assign error as usual
+              auto errorExpr = errorEstHandler->m_EstModel->AssignError(
+                  StmtDiff(replacedExpr.top, it->second));
+              addToCurrentBlock(BuildOp(BO_AddAssign, deltaVar, errorExpr),
+                                reverse);
+            } 
+          } else
+            errorEstHandler->m_DoNotEmitDelta = false;
         }
         return StmtDiff(clonedDRE, it->second);
       }
@@ -2685,6 +2796,7 @@ namespace clad {
   StmtDiff ReverseModeVisitor::VisitUnaryOperator(const UnaryOperator* UnOp) {
     auto opCode  = UnOp->getOpcode();
     StmtDiff diff{};
+    Expr* newPushCall = nullptr;
     // If it is a post-increment/decrement operator, its result is a reference and
     // we should return it.
     Expr* ResultRef = nullptr;
@@ -2701,25 +2813,44 @@ namespace clad {
       diff = Visit(UnOp->getSubExpr(), d);
     }
     else if (opCode == UO_PostInc || opCode == UO_PostDec) {
+      if (m_EstimationInFlight) {
+        auto declRef = dyn_cast<DeclRefExpr>(Clone(UnOp->getSubExpr()));
+        if (declRef && errorEstHandler->m_EstModel->IsVariableRegistered(dyn_cast<VarDecl>(declRef->getDecl()))) {
+          auto decl = dyn_cast<VarDecl>(declRef->getDecl());
+          auto replacedRef = errorEstHandler->GetReplacement(decl);
+          newPushCall = PushDiffArgs(replacedRef.tapeRef, Clone(UnOp));
+          addToCurrentBlock(replacedRef.pop, reverse);
+        }
+      }
       diff = Visit(UnOp->getSubExpr(), dfdx());
       ResultRef = diff.getExpr_dx();
     }
     else if (opCode == UO_PreInc || opCode == UO_PreDec) {
       diff = Visit(UnOp->getSubExpr(), dfdx());
-    }
-    else {
+      if(m_EstimationInFlight){
+        auto declRef = dyn_cast<DeclRefExpr>(diff.getExpr());
+        if (declRef && errorEstHandler->m_EstModel->IsVariableRegistered(dyn_cast<VarDecl>(declRef->getDecl()))) {
+          auto decl = dyn_cast<VarDecl>(declRef->getDecl());
+          auto replacedRef = errorEstHandler->GetReplacement(decl);
+          newPushCall = PushDiffArgs(replacedRef.tapeRef, Clone(UnOp));
+          addToCurrentBlock(replacedRef.pop, reverse);
+        }
+      }
+    } else {
       // We should not output any warning on visiting boolean conditions
       // FIXME: We should support boolean differentiation or ignore it completely
       if(opCode != UO_LNot)
         unsupportedOpWarn(UnOp->getEndLoc());
 
       Expr* subExpr = UnOp->getSubExpr();
-      if(auto SDRE = dyn_cast<DeclRefExpr>(subExpr))
+      if(dyn_cast<DeclRefExpr>(subExpr))
          diff = Visit(subExpr);
       else
          diff = StmtDiff(subExpr);
     }
     Expr* op = BuildOp(opCode, diff.getExpr());
+    if(newPushCall)
+        op = newPushCall;
     return StmtDiff(op, ResultRef);
   }
 
@@ -2837,7 +2968,7 @@ namespace clad {
 
         return BuildOp(opCode, LExpr, RExpr);
       }
-
+      
       if (auto ASE = dyn_cast<ArraySubscriptExpr>(L)) {
         auto DRE = dyn_cast<DeclRefExpr>(ASE->getBase()->IgnoreImplicit());
         QualType type = DRE->getType()->getPointeeType();
@@ -2879,9 +3010,13 @@ namespace clad {
       // Visit LHS, but delay emission of its derivative statements, save them
       // in Lblock
       beginBlock(reverse);
+      // If in error estimation, we do not want to emit the delta statement for
+      // LHS of assignment ops
+      if (m_EstimationInFlight)
+        errorEstHandler->m_DoNotEmitDelta = true;
+      
       Ldiff = Visit(L, dfdx());
       auto Lblock = endBlock(reverse);
-      Expr* LCloned = Ldiff.getExpr();
       // For x, AssignedDiff is _d_x, for x[i] its _d_x[i], for reference exprs
       // like (x = y) it propagates recursively, so _d_x is also returned.
       Expr* AssignedDiff = Ldiff.getExpr_dx();
@@ -2903,6 +3038,18 @@ namespace clad {
       // If assigned expr is dependent, first update its derivative;
       auto Lblock_begin = Lblock->body_rbegin();
       auto Lblock_end = Lblock->body_rend();
+      Expr* LCloned = Ldiff.getExpr();
+      auto LRef = dyn_cast<DeclRefExpr>(LCloned);
+      VarDecl* Ldecl = LRef ? dyn_cast<VarDecl>(LRef->getDecl()) : nullptr;
+      Expr* deltaVar = nullptr;
+      if(m_EstimationInFlight && Ldecl){
+        deltaVar =
+              errorEstHandler->m_EstModel->IsVariableRegistered(Ldecl);
+        if(deltaVar){
+          auto replacedExpr = errorEstHandler->GetReplacement(Ldecl);
+          addToCurrentBlock(replacedExpr.pop, reverse);
+        }
+      }
       if (dfdx() && Lblock->size()) {
         addToCurrentBlock(*Lblock_begin, reverse);
         Lblock_begin = std::next(Lblock_begin);
@@ -2983,6 +3130,23 @@ namespace clad {
       }
       else
         llvm_unreachable("unknown assignment opCode");
+      // For cases like x -= y, we also want to emit the delta of x since the
+      // expression is equivalent to x = x - y.
+      if (m_EstimationInFlight && deltaVar) {
+        // first check if the current var has a replacement
+        auto replacedExpr = errorEstHandler->GetReplacement(Ldecl);
+        // only emitt the error for compound assignments
+        if (opCode != BO_Assign) {
+          auto errorExpr = errorEstHandler->m_EstModel->AssignError(
+              StmtDiff(replacedExpr.top, Ldiff.getExpr_dx()));
+          addToCurrentBlock(BuildOp(BO_AddAssign, deltaVar, errorExpr),
+                            reverse);
+        }
+        // update and emit the new replacement anyway as long as the
+        // variable is registered
+        errorEstHandler->m_pushExpr =
+            errorEstHandler->m_ReplaceEstVar[Ldecl].push;
+      }
       // Update the derivative.
       addToCurrentBlock(BuildOp(BO_SubAssign, AssignedDiff, oldValue), reverse);
       // Output statements from Visit(L).
@@ -3026,6 +3190,21 @@ namespace clad {
                           StmtDiff{};
     VarDecl* VDClone = BuildVarDecl(VD->getType(),VD->getNameAsString(),
                                     initDiff.getExpr(), VD->isDirectInit());
+    // If error estimation is in flight, register the VarDecl 
+    // and emit it to the Global stmts to be initialized at the start
+    if (m_EstimationInFlight) {
+      // If it is non-floating point type, we could not care less about it
+      // in that case, do nothing
+      if (auto EstVD = errorEstHandler->RegisterVariable(VDClone)) {
+          auto tape = MakeCladTapeFor(BuildDeclRef(VDClone));
+          auto topExpr = tape.Last();
+          errorEstHandler->m_ReplaceEstVar[VDClone] =
+                  ErrorEstimationHandler::TapeInfo(tape.Push, tape.Pop,
+                                                   topExpr, tape.Ref);
+        errorEstHandler->m_pushExpr = tape.Push;
+        addToBlock(BuildDeclStmt(EstVD), m_Globals);
+      }
+    }
     m_Variables.emplace(VDClone, BuildDeclRef(VDDerived));
     return VarDeclDiff(VDClone, VDDerived);
   }
@@ -3047,6 +3226,10 @@ namespace clad {
     beginBlock(reverse);
     StmtDiff EDiff = Visit(E, dfdE);
     CompoundStmt* RCS = endBlock(reverse);
+    if(m_EstimationInFlight && errorEstHandler->m_pushExpr){
+      addToCurrentBlock(errorEstHandler->m_pushExpr, forward);
+      errorEstHandler->m_pushExpr = nullptr;
+    }
     Stmt* ForwardResult = endBlock(forward);
     std::reverse(RCS->body_begin(), RCS->body_end());
     Stmt* ReverseResult = unwrapIfSingleStmt(RCS);
