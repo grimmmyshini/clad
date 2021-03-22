@@ -13,6 +13,7 @@
 
 #include "clad/Differentiator/DiffPlanner.h"
 #include "clad/Differentiator/StmtClone.h"
+#include "clad/Differentiator/ErrorEstimator.h"
 
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/TemplateBase.h"
@@ -30,6 +31,9 @@
 using namespace clang;
 
 namespace clad {
+
+  std::unique_ptr<ErrorEstimationHandler> errorEstHandler = nullptr;
+  
   DerivativeBuilder::DerivativeBuilder(clang::Sema& S, plugin::CladPlugin& P)
     : m_Sema(S), m_CladPlugin(P), m_Context(S.getASTContext()),
       m_NodeCloner(new utils::StmtClone(m_Sema, m_Context)),
@@ -118,7 +122,6 @@ namespace clad {
              "definition", { FD->getNameAsString() });
       return {};
     }
-    FD = FD->getDefinition();
     DeclWithContext result{};
     if (request.Mode == DiffMode::forward) {
       ForwardModeVisitor V(*this);
@@ -130,9 +133,13 @@ namespace clad {
     } else if (request.Mode == DiffMode::hessian) {
       HessianModeVisitor H(*this);
       result = H.Derive(FD, request);
-    } if (request.Mode == DiffMode::jacobian) {
+    } else if (request.Mode == DiffMode::jacobian) {
       JacobianModeVisitor J(*this);
       result = J.Derive(FD, request);
+    } else if (request.Mode == DiffMode::error_estimation) {
+      // Set the handler and call calculate to begin estimation
+      errorEstHandler.reset(new ErrorEstimationHandler(*this));
+      result = errorEstHandler->Calculate(FD, request);
     }
 
     if (result.first)

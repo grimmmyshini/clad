@@ -11,16 +11,19 @@ namespace clang {
   class FunctionDecl;
   class ParmVarDecl;
   class Sema;
-}
+  class Type;
+  } // namespace clang
 
 namespace clad {
+  class EstimationModel;
 
   enum class DiffMode {
     unknown = 0,
     forward,
     reverse,
     hessian,
-    jacobian
+    jacobian,
+    error_estimation
   };
 
   /// A struct containing information about request to differentiate a function.
@@ -45,7 +48,9 @@ namespace clad {
     /// the call must be updated and the first arg replaced by the derivative.
     bool CallUpdateRequired = false;
     /// A flag to enable/disable diag warnings/errors during differentiation.
-    bool VerboseDiags = false;
+    bool VerboseDiags = false; 
+    /// Store the type of user specified model for error estimation
+    EstimationModel* CustomModel = nullptr; 
 
     void updateCall(clang::FunctionDecl* FD, clang::Sema& SemaRef);
   };

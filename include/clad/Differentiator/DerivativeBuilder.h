@@ -7,10 +7,10 @@
 #ifndef CLAD_DERIVATIVE_BUILDER_H
 #define CLAD_DERIVATIVE_BUILDER_H
 
+#include "Compatibility.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/Sema/Sema.h"
-#include "Compatibility.h"
 
 #include <array>
 #include <stack>
@@ -26,7 +26,7 @@ namespace clang {
   class Scope;
   class Sema;
   class Stmt;
-}
+} // namespace clang
 
 namespace clad {
   namespace utils {
@@ -35,8 +35,9 @@ namespace clad {
   struct DiffRequest;
   namespace plugin {
     class CladPlugin;
-    clang::FunctionDecl* ProcessDiffRequest(CladPlugin& P, DiffRequest& request);
-  }
+    clang::FunctionDecl* ProcessDiffRequest(CladPlugin& P,
+                                            DiffRequest& request);
+  } // namespace plugin
 
   struct IndexInterval {
     size_t Start;
@@ -48,17 +49,17 @@ namespace clad {
 
     IndexInterval(size_t index) : Start(index), Finish(index + 1) {}
 
-    size_t size() {
-      return Finish - Start;
-    }
+    size_t size() { return Finish - Start; }
 
-    bool isInInterval(size_t n) {
-      return n >= Start && n <= Finish;
-    }
+    bool isInInterval(size_t n) { return n >= Start && n <= Finish; }
   };
-}
+} // namespace clad
 
 namespace clad {
+  class ErrorEstimationHandler;
+  // A pointer to a the handler to be used for estimation requests
+  extern std::unique_ptr<ErrorEstimationHandler> errorEstHandler;
+
   /// A pair of FunctionDecl and potential enclosing context, e.g. a function
   // in nested namespaces
   using DeclWithContext = std::pair<clang::FunctionDecl*, clang::Decl*>;
@@ -94,10 +95,11 @@ namespace clad {
                                   clang::SourceLocation& noLoc,
                                   clang::DeclarationNameInfo name,
                                   clang::QualType functionType);
-    clang::Expr* findOverloadedDefinition(clang::DeclarationNameInfo DNI,
-                            llvm::SmallVectorImpl<clang::Expr*>& CallArgs);
+    clang::Expr*
+    findOverloadedDefinition(clang::DeclarationNameInfo DNI,
+                             llvm::SmallVectorImpl<clang::Expr*>& CallArgs);
     bool noOverloadExists(clang::Expr* UnresolvedLookup,
-                            llvm::MutableArrayRef<clang::Expr*> ARargs);
+                          llvm::MutableArrayRef<clang::Expr*> ARargs);
     /// Shorthand to issues a warning or error.
     template <std::size_t N>
     void diag(clang::DiagnosticsEngine::Level level, // Warning or Error
@@ -109,6 +111,7 @@ namespace clad {
       for (auto arg : args)
         stream << arg;
     }
+
   public:
     DerivativeBuilder(clang::Sema& S, plugin::CladPlugin& P);
     ~DerivativeBuilder();
@@ -122,7 +125,7 @@ namespace clad {
     /// context.
     ///
     DeclWithContext Derive(const clang::FunctionDecl* FD,
-                           const DiffRequest & request);
+                           const DiffRequest& request);
   };
 
 } // end namespace clad
