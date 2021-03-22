@@ -32,6 +32,7 @@ add_llvm_library(cladDifferentiator
   ConstantFolder.cpp
   DerivativeBuilder.cpp
   DiffPlanner.cpp
+  ErrorEstimator.cpp
   StmtClone.cpp
   Version.cpp
   ${version_inc}
