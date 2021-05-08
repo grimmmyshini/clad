@@ -68,6 +68,20 @@ template <class T> Stmt* EstimationModel<T>::CalculateAggregateError() {
   return m_VBase.BuildDeclStmt(m_AggregateEstimate);
 }
 
+/// Example class for taylor series approximation based error estimation
+class TaylorApprox : public EstimationModel<TaylorApprox> {
+public:
+  // Return an expression of the following kind
+  //  dfdx * delta_x
+  Expr* AssignError(StmtDiff* refExpr, Expr* errExpr) {
+    return m_VBase.BuildOp(BO_Mul, refExpr->getExpr_dx(), errExpr);
+  }
+
+  // For now, we can just return null
+  // FIXME: return the true expression
+  Expr* SetError(StmtDiff* declStmt) { return nullptr; }
+};
+
 } // namespace clad
 
 #endif // CLAD_ESTIMATION_MODEL_TPP

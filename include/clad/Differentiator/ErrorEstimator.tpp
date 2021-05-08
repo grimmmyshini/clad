@@ -13,6 +13,27 @@
 using namespace clang;
 
 namespace clad {
+
+template <class T>
+DeclWithContext ErrorEstimationHandler<T>::Calculate(const clang::FunctionDecl* FD, const DiffRequest& request){
+
+  // Any calls to Derive hereafter are done in the context of error estimation
+  // hence we should emmit estimation code whenever we derive 
+  m_EstimationInFlight = true;
+
+  // Call gradient on the function as we would normally
+  FD = FD->getDefinition();
+  DeclWithContext result{};
+
+  ReverseModeVisitor V(m_builder);
+  result = V.Derive(FD, request);
+
+  // Change the final call to reflect the absolute error
+  // FIXME: Do this is reversemode derive
+
+  return result;
+}
+
 // FIXME: There is probably more to this...
 template <class T>
 VarDecl* ErrorEstimationHandler<T>::RegisterVariable(const VarDecl* VD) {

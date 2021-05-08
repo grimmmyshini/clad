@@ -10,6 +10,7 @@
 #include "BuiltinDerivatives.h"
 #include "FunctionTraits.h"
 #include "Tape.h"
+#include "EstimationModel.h"
 
 #include <assert.h>
 #include <stddef.h>
@@ -167,6 +168,16 @@ namespace clad {
         reinterpret_cast<ExtractDerivedFnTraits_t<F>>(f) /* will be replaced by Jacobian*/,
         code);
   }
+
+  template<typename ArgSpec = const char *, typename F, class EstModel>
+  CladFunction<ExtractDerivedFnTraits_t<F>> __attribute__((annotate("E")))
+  error_estimation(F f, ArgSpec args = "", const char* code = "") {
+    assert(f && "Must pass in a non-0 argument");
+    return CladFunction<ExtractDerivedFnTraits_t<F>>(
+      reinterpret_cast<ExtractDerivedFnTraits_t<F>>(f) /* will be replaced by estimation code*/,
+      code);
+  }
+
 }
 #endif // CLAD_DIFFERENTIATOR
 

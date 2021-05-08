@@ -30,7 +30,7 @@ protected:
   std::unordered_map<clang::VarDecl*, clang::Expr*> m_EstimateVar;
   /// This is the reference to the VisitorBase class which will be used to build
   /// various kinds of expressions and statements
-  clad::VisitorBase& m_VBase;
+  VisitorBase& m_VBase;
 
 public:
   EstimationModel();
@@ -38,7 +38,7 @@ public:
   /// \brief Set the visitor base instance that will help us later build
   /// operations. Internally called by Calculate
   /// \param[in] vBase The instance to set
-  void SetVisitorBase(clad::VisitorBase& vBase) { m_VBase = vBase; }
+  void SetVisitorBase(VisitorBase& vBase) { m_VBase = vBase; }
   /// \brief Check if a variable is registered for estimation
   /// \param[in] VD The variable to check
   /// \returns The delta expression of the variable if it is registered, nullptr otherwise
@@ -52,8 +52,7 @@ public:
   /// a clang::Expr, the user may use BuildOp() to build the final expression.
   /// An example of a possible override is:
   /// \code
-  /// clang::Expr* AssignError(const clad::StmtDiff* refExpr, const clang::Expr*
-  /// errExpr) {
+  /// clang::Expr* AssignError(clad::StmtDiff* refExpr, clang::Expr* errExpr) {
   ///   return BuildOp(BO_Mul, refExpr->getExpr_dx(), errExpr);
   /// }
   /// \endcode
@@ -67,8 +66,8 @@ public:
   /// \param[in] errExpr This is the error in the refExpr so far. Errors are
   /// assigned to expressions at every step so this value varies as does the
   /// depth of the main expression we are evaluating.
-  clang::Expr* AssignError(const clad::StmtDiff* refExpr,
-                           const clang::Expr* errExpr) {
+  clang::Expr* AssignError(StmtDiff* refExpr,
+                            clang::Expr* errExpr) {
     return static_cast<SubModel*>(this)->AssignError(refExpr, errExpr);
   }
   /// \brief Assign errors for declaration statements.
@@ -79,7 +78,7 @@ public:
   ///
   /// Following the example above, a possible override is:
   /// \code
-  /// clang::Expr* SetError(const clad::StmtDiff* declStmt) {
+  /// clang::Expr* SetError(clad::StmtDiff* declStmt) {
   ///      return BuildOp(BO_Mul, declStmt->getExpr_dx(), DBL_EPSILON);
   /// }
   /// \endcode
@@ -87,7 +86,7 @@ public:
   ///
   /// \param[in] declStmt The declaration to which the error has to be assigned.
   /// \returns The error expression for declaration statements.
-  clang::Expr* SetError(const clad::StmtDiff* declStmt) {
+  clang::Expr* SetError(StmtDiff* declStmt) {
     return static_cast<SubModel*>(this)->SetError(declStmt);
   }
   /// \brief Calculate aggregate error from m_EstimateVar.

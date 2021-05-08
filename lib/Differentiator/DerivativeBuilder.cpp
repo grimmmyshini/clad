@@ -10,6 +10,7 @@
 
 #include "clad/Differentiator/DiffPlanner.h"
 #include "clad/Differentiator/StmtClone.h"
+#include "clad/Differentiator/ErrorEstimator.h"
 
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Expr.h"
@@ -32,6 +33,10 @@
 using namespace clang;
 
 namespace clad {
+
+  template <typename T>
+  ErrorEstimationHandler<T> errorEstHandler;
+
   DerivativeBuilder::DerivativeBuilder(clang::Sema& S, plugin::CladPlugin& P)
     : m_Sema(S), m_CladPlugin(P), m_Context(S.getASTContext()),
       m_NodeCloner(new utils::StmtClone(m_Sema, m_Context)),
@@ -79,9 +84,17 @@ namespace clad {
     } else if (request.Mode == DiffMode::hessian) {
       HessianModeVisitor H(*this);
       result = H.Derive(FD, request);
-    } if (request.Mode == DiffMode::jacobian) {
+    } else if (request.Mode == DiffMode::jacobian) {
       JacobianModeVisitor J(*this);
       result = J.Derive(FD, request);
+    } else if (request.Mode == DiffMode::error_estimation) {
+      // Have to create a handler instance here and call calculate
+      // Assign this instance to the global errorEstHandler
+      // Here CustomType is the underlying type of
+      // request.EstimationSubModelType (which itself is of clang::Type)
+
+      errorEstHandler<CustomType> = ErrorEstimationHandler<CustomType>(*this); 
+      result = errorEstHandler.Calculate(FD, request);
     }
 
     if (result.first)

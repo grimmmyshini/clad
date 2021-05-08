@@ -15,6 +15,7 @@ class FunctionDecl;
 namespace clad {
 struct DiffRequest;
 class VisitorBase;
+class DerivativeBuilder;
 } // namespace clad
 
 namespace clad {
@@ -26,8 +27,7 @@ using DeclWithContext = std::pair<clang::FunctionDecl*, clang::Decl*>;
 /// The estimation handler which interfaces with Clad's reverse mode visitors to
 /// fetch derivatives
 /// \tparam SubModel The user defined custom error estimation model
-template <class SubModel>
-class ErrorEstimationHandler {
+template <class SubModel> class ErrorEstimationHandler {
   /// Determines if an estimation is in process; helps decide whether
   /// to visit error estimation specific code in calls to clad::gradient
   bool m_EstimationInFlight;
@@ -37,8 +37,13 @@ class ErrorEstimationHandler {
   EstimationModel<SubModel>& m_EstModel;
   /// A reference to the current visitor base instance
   VisitorBase& m_VBase;
+  /// A reference to the builder instance so that we can call Derive of visitor
+  DerivativeBuilder& m_builder;
 
 public:
+  ErrorEstimationHandler(DerivativeBuilder& builder)
+      : m_builder(builder), m_VBase(VisitorBase(builder)) {}
+  /// Workaround to be able to declare variable template of this class
   ErrorEstimationHandler();
   ~ErrorEstimationHandler();
   /// \brief Function to calculate the estimated error in a function.
@@ -58,6 +63,8 @@ public:
   /// \param[in] VD The variable declaration to be registered
   /// \returns The Variable declaration of the '_delta_' prefixed variable
   clang::VarDecl* RegisterVariable(const clang::VarDecl* VD);
+
+  friend class ReverseModeVisitor;
 };
 
 } // namespace clad
