@@ -5,8 +5,7 @@
 #error __FILE__ should only be included from ErrorEstimator.h.
 #endif
 
-#include "clad/Differentiator/DerivativeBuilder.h"
-#include "clad/Differentiator/ErrorEstimator.h"
+#include "DerivativeBuilder.h"
 
 #include "clang/AST/Decl.h"
 
@@ -27,9 +26,6 @@ DeclWithContext ErrorEstimationHandler<T>::Calculate(const clang::FunctionDecl* 
 
   ReverseModeVisitor V(m_builder);
   result = V.Derive(FD, request);
-
-  // Change the final call to reflect the absolute error
-  // FIXME: Do this is reversemode derive
 
   return result;
 }

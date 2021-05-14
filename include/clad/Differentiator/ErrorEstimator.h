@@ -33,19 +33,20 @@ template <class SubModel> class ErrorEstimationHandler {
   bool m_EstimationInFlight;
   /// Keeps track of subexpression error; useful for error accumulation
   clang::Expr* m_SubExprErr;
-  /// An instance of the custom error estimation model to be used
-  EstimationModel<SubModel>& m_EstModel;
-  /// A reference to the current visitor base instance
-  VisitorBase& m_VBase;
+  /// Reference to the final error parameter in the augumented target function
+  clang::Expr* m_FinalError;
   /// A reference to the builder instance so that we can call Derive of visitor
   DerivativeBuilder& m_builder;
+  /// A instance of visitor base to utilize all functionalities from the same 
+  // since we do not derive from it
+  VisitorBase m_VBase;
+  /// An instance of the custom error estimation model to be used
+  EstimationModel<SubModel> m_EstModel;
 
 public:
   ErrorEstimationHandler(DerivativeBuilder& builder)
-      : m_builder(builder), m_VBase(VisitorBase(builder)) {}
-  /// Workaround to be able to declare variable template of this class
-  ErrorEstimationHandler();
-  ~ErrorEstimationHandler();
+      : m_builder(builder), m_VBase(VisitorBase(builder)), m_EstModel(m_VBase) {}
+  ~ErrorEstimationHandler() {}
   /// \brief Function to calculate the estimated error in a function.
   /// This function internally calls Derive and performs some housekeeping tasks
   /// required to set up error estimation

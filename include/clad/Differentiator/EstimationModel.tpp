@@ -5,7 +5,7 @@
 #error __FILE__ should only be included from EstimationModel.h.
 #endif
 
-#include "clad/Differentiator/DerivativeBuilder.h"
+#include "DerivativeBuilder.h"
 
 #include "clang/AST/Decl.h"
 #include "clang/AST/Expr.h"

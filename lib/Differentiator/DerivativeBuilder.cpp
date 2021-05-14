@@ -35,7 +35,7 @@ using namespace clang;
 namespace clad {
 
   template <typename T>
-  ErrorEstimationHandler<T> errorEstHandler;
+  std::unique_ptr<ErrorEstimationHandler<T>> errorEstHandler = nullptr;
 
   DerivativeBuilder::DerivativeBuilder(clang::Sema& S, plugin::CladPlugin& P)
     : m_Sema(S), m_CladPlugin(P), m_Context(S.getASTContext()),
@@ -88,13 +88,11 @@ namespace clad {
       JacobianModeVisitor J(*this);
       result = J.Derive(FD, request);
     } else if (request.Mode == DiffMode::error_estimation) {
-      // Have to create a handler instance here and call calculate
-      // Assign this instance to the global errorEstHandler
-      // Here CustomType is the underlying type of
-      // request.EstimationSubModelType (which itself is of clang::Type)
-
-      errorEstHandler<CustomType> = ErrorEstimationHandler<CustomType>(*this); 
-      result = errorEstHandler.Calculate(FD, request);
+      // For now, we hardcode the model...
+      if (!errorEstHandler<TaylorApprox>)
+        errorEstHandler<TaylorApprox>.reset(
+            new ErrorEstimationHandler<TaylorApprox>(*this));
+      result = errorEstHandler<TaylorApprox>->Calculate(FD, request);
     }
 
     if (result.first)
@@ -1803,7 +1801,8 @@ namespace clad {
     DeclarationNameInfo name(II, noLoc);
 
     // A vector of types of the gradient function parameters.
-    llvm::SmallVector<QualType, 16> paramTypes(m_Function->getNumParams() + 1);
+    int numExtraParam = request.Mode == DiffMode::error_estimation ? 2 : 1;
+    llvm::SmallVector<QualType, 16> paramTypes(m_Function->getNumParams() + numExtraParam);
     if (request.Mode == DiffMode::jacobian) {
       unsigned lastArgN = m_Function->getNumParams() - 1;
       outputArrayStr = m_Function->getParamDecl(lastArgN)->getNameAsString();
@@ -1819,16 +1818,24 @@ namespace clad {
       paramTypes.back() = m_Function->getParamDecl(lastArgN)->getType();
     } else {
       // The last parameter is the output parameter of the R* type.
-      paramTypes.back() = m_Context.getPointerType(m_Function->getReturnType());
+      paramTypes[paramTypes.size() - numExtraParam] =
+          m_Context.getPointerType(m_Function->getReturnType());
+    }
+    // If we are performing error estimation, our gradient function 
+    // will have an extra argument which will hold the final error value
+    if (request.Mode == DiffMode::error_estimation) {
+      // For now, make sure the error variable is double
+      paramTypes.back() = m_Context.getLValueReferenceType(m_Context.DoubleTy);
     }
     // For a function f of type R(A1, A2, ..., An),
     // the type of the gradient function is void(A1, A2, ..., An, R*).
-    QualType gradientFunctionType =
-      m_Context.getFunctionType(m_Context.VoidTy,
-                                llvm::ArrayRef<QualType>(paramTypes.data(),
-                                                         paramTypes.size()),
-                                // Cast to function pointer.
-                                FunctionProtoType::ExtProtoInfo());
+    // For error estimation, the return type of the function
+    // is void(A1, A2, ..., An, R*, double&)
+    QualType gradientFunctionType = m_Context.getFunctionType(
+        m_Context.VoidTy,
+        llvm::ArrayRef<QualType>(paramTypes.data(), paramTypes.size()),
+        // Cast to function pointer.
+        FunctionProtoType::ExtProtoInfo());
 
     // Create the gradient function declaration.
     FunctionDecl* gradientFD = nullptr;
@@ -1896,17 +1903,31 @@ namespace clad {
           *it = VD;
         return VD;
     });
+
     // The output paremeter "_result".
-    params.back() = ParmVarDecl::Create(m_Context, gradientFD, noLoc,
-                                        noLoc, &m_Context.Idents.get(resultArg()),
-                                        paramTypes.back(),
-                                        m_Context.getTrivialTypeSourceInfo(
-                                          paramTypes.back(), noLoc),
-                                        params.front()->getStorageClass(),
-                                        /* No default value */ nullptr);
-    if (params.back()->getIdentifier())
-      m_Sema.PushOnScopeChains(params.back(), getCurrentScope(),
+    params[params.size() - numExtraParam] = ParmVarDecl::Create(
+        m_Context, gradientFD, noLoc, noLoc, &m_Context.Idents.get(resultArg()),
+        paramTypes[paramTypes.size() - numExtraParam],
+        m_Context.getTrivialTypeSourceInfo(
+            paramTypes[paramTypes.size() - numExtraParam], noLoc),
+        params.front()->getStorageClass(),
+        /* No default value */ nullptr);
+    if (params[params.size() - numExtraParam]->getIdentifier())
+      m_Sema.PushOnScopeChains(params[params.size() - numExtraParam],
+                               getCurrentScope(),
                                /*AddToContext*/ false);
+    // If in error estimation mode, create the error parameter
+    if(request.Mode == DiffMode::error_estimation){
+      // Repeat the above but for the error ouput var "_final_error"
+      params.back() = ParmVarDecl::Create(
+          m_Context, gradientFD, noLoc, noLoc,
+          &m_Context.Idents.get("_final_error"), paramTypes.back(),
+          m_Context.getTrivialTypeSourceInfo(paramTypes.back(), noLoc),
+          params.front()->getStorageClass(), /* No default value */ nullptr);
+      if (params.back()->getIdentifier())
+        m_Sema.PushOnScopeChains(params.back(), getCurrentScope(),
+                                 /*AddToContext*/ false);
+    }
 
     llvm::ArrayRef<ParmVarDecl*> paramsRef = llvm::makeArrayRef(params.data(),
                                                                 params.size());
@@ -1914,7 +1935,10 @@ namespace clad {
     gradientFD->setBody(nullptr);
 
     // Reference to the output parameter.
-    m_Result = BuildDeclRef(params.back());
+    m_Result = BuildDeclRef(params[params.size() - numExtraParam]);
+    // Reference to the final error statement
+    if (request.Mode == DiffMode::error_estimation)
+      errorEstHandler<TaylorApprox>->m_FinalError = BuildDeclRef(params.back());
 
     // Turns output array dimension input into APSInt
     auto PVDTotalArgs = m_Function->getParamDecl((m_Function->getNumParams() - 1));

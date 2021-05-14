@@ -10,7 +10,6 @@
 #include "BuiltinDerivatives.h"
 #include "FunctionTraits.h"
 #include "Tape.h"
-#include "EstimationModel.h"
 
 #include <assert.h>
 #include <stddef.h>
@@ -169,7 +168,7 @@ namespace clad {
         code);
   }
 
-  template<typename ArgSpec = const char *, typename F, class EstModel>
+  template<typename ArgSpec = const char *, typename F>
   CladFunction<ExtractDerivedFnTraits_t<F>> __attribute__((annotate("E")))
   error_estimation(F f, ArgSpec args = "", const char* code = "") {
     assert(f && "Must pass in a non-0 argument");

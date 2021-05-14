@@ -12,6 +12,7 @@ class Expr;
 namespace clad {
 class StmtDiff;
 class VisitorBase;
+class ReverseModeVisitor;
 } // namespace clad
 
 namespace clad {
@@ -33,12 +34,11 @@ protected:
   VisitorBase& m_VBase;
 
 public:
-  EstimationModel();
-  ~EstimationModel();
-  /// \brief Set the visitor base instance that will help us later build
-  /// operations. Internally called by Calculate
-  /// \param[in] vBase The instance to set
-  void SetVisitorBase(VisitorBase& vBase) { m_VBase = vBase; }
+  EstimationModel(VisitorBase& VB) : m_VBase(VB) {}
+  ~EstimationModel() {}
+  /// \brief Get a reference to the SubModel being used
+  /// \returns Reference to the SubModel
+  SubModel &getSubModel() { return *static_cast<SubModel *>(this); }
   /// \brief Check if a variable is registered for estimation
   /// \param[in] VD The variable to check
   /// \returns The delta expression of the variable if it is registered, nullptr otherwise
@@ -92,6 +92,8 @@ public:
   /// \brief Calculate aggregate error from m_EstimateVar.
   /// Builds the final error estimation statement
   clang::Stmt* CalculateAggregateError();
+
+  friend class ReverseModeVisitor;
 };
 
 } // namespace clad
