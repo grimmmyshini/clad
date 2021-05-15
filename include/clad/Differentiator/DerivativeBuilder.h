@@ -158,6 +158,12 @@ namespace clad {
       return CS;
     }
 
+    clang::CompoundStmt* endSpecifiedBlock(Stmts& block){
+      auto CS = MakeCompoundStmt(block);
+      block.clear();
+      return CS;
+    }
+
     // Check if result of the expression is unused.
     bool isUnusedResult(const clang::Expr* E);
     /// Output a statement to the current block. If Stmt is null or is an unused
@@ -409,6 +415,9 @@ namespace clad {
     : public clang::ConstStmtVisitor<ReverseModeVisitor, StmtDiff>,
       public VisitorBase {
   private:
+    /// Determines if an error estimation is in process; helps decide whether
+    /// to visit error estimation specific code in calls to VisitStmt
+    bool m_EstimationInFlight = false;
     llvm::SmallVector<const clang::VarDecl*, 16> m_IndependentVars;
     /// In addition to a sequence of forward-accumulated Stmts (m_Blocks), in 
     /// the reverse mode we also accumulate Stmts for the reverse pass which

@@ -13,6 +13,7 @@ namespace clad {
 class StmtDiff;
 class VisitorBase;
 class ReverseModeVisitor;
+class VarDeclDiff;
 } // namespace clad
 
 namespace clad {
@@ -28,7 +29,7 @@ protected:
   /// Map to keep track of the error estimate variables for each declaration
   /// reference could be removed if we come up with annotations for the estimate
   /// vars
-  std::unordered_map<clang::VarDecl*, clang::Expr*> m_EstimateVar;
+  std::unordered_map<const clang::VarDecl*, clang::Expr*> m_EstimateVar;
   /// This is the reference to the VisitorBase class which will be used to build
   /// various kinds of expressions and statements
   VisitorBase& m_VBase;
@@ -42,11 +43,11 @@ public:
   /// \brief Check if a variable is registered for estimation
   /// \param[in] VD The variable to check
   /// \returns The delta expression of the variable if it is registered, nullptr otherwise
-  clang::Expr* IsVariableRegistered(clang::VarDecl* VD);
+  clang::Expr* IsVariableRegistered(const clang::VarDecl* VD);
   /// \brief Track the varibale declaration and utilize it in error estimation
   /// \param[in] VD The declaration to track
   /// \returns The varibale declaration of the delta value
-  clang::VarDecl* AddVarToEstimate(clang::VarDecl* VD);
+  clang::VarDecl* AddVarToEstimate(const clang::VarDecl* VD);
   /// \brief User overridden function to return the error expression of a
   /// specific estimation model. The error expression is returned in the form of
   /// a clang::Expr, the user may use BuildOp() to build the final expression.
@@ -66,10 +67,7 @@ public:
   /// \param[in] errExpr This is the error in the refExpr so far. Errors are
   /// assigned to expressions at every step so this value varies as does the
   /// depth of the main expression we are evaluating.
-  clang::Expr* AssignError(StmtDiff* refExpr,
-                            clang::Expr* errExpr) {
-    return static_cast<SubModel*>(this)->AssignError(refExpr, errExpr);
-  }
+  clang::Expr *AssignError(StmtDiff refExpr, clang::Expr *errExpr = nullptr);
   /// \brief Assign errors for declaration statements.
   /// This function returns the initial error assignment. Similar to
   /// AssignError, however, this function is only called during declaration of
@@ -86,12 +84,10 @@ public:
   ///
   /// \param[in] declStmt The declaration to which the error has to be assigned.
   /// \returns The error expression for declaration statements.
-  clang::Expr* SetError(StmtDiff* declStmt) {
-    return static_cast<SubModel*>(this)->SetError(declStmt);
-  }
+  clang::Expr *SetError(VarDeclDiff declStmt);
   /// \brief Calculate aggregate error from m_EstimateVar.
   /// Builds the final error estimation statement
-  clang::Stmt* CalculateAggregateError();
+  clang::Expr* CalculateAggregateError();
 
   friend class ReverseModeVisitor;
 };

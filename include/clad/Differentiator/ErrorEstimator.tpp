@@ -16,10 +16,6 @@ namespace clad {
 template <class T>
 DeclWithContext ErrorEstimationHandler<T>::Calculate(const clang::FunctionDecl* FD, const DiffRequest& request){
 
-  // Any calls to Derive hereafter are done in the context of error estimation
-  // hence we should emmit estimation code whenever we derive 
-  m_EstimationInFlight = true;
-
   // Call gradient on the function as we would normally
   FD = FD->getDefinition();
   DeclWithContext result{};
@@ -35,7 +31,7 @@ template <class T>
 VarDecl* ErrorEstimationHandler<T>::RegisterVariable(const VarDecl* VD) {
   // Get the types on the declartion and initalization expression
   QualType varDeclType = VD->getType();
-  QualType initType = VD->getInit()->IgnoreImpCasts()->getType();
+  const Expr* init = VD->getInit();
   // If declarationg type in not floating point type, we want to do two things
   if (!varDeclType->isFloatingType()) {
     // Firstly, we want to check if the declaration is a lossy conversion
@@ -44,10 +40,10 @@ VarDecl* ErrorEstimationHandler<T>::RegisterVariable(const VarDecl* VD) {
     // int x = y <-- This causes truncation in y,
     // making _delta_x = y - (double)x
     // For now, we will just warn the user of casts like these
-    if (initType->isFloatingType())
+    if (init && init->IgnoreImpCasts()->getType()->isFloatingType())
       m_VBase.diag(DiagnosticsEngine::Warning, VD->getBeginLoc(),
                    "Lossy assignment from '%0' to '%1'",
-                   {VD->getInit()->getType().getAsString(),
+                   {init->IgnoreImpCasts()->getType().getAsString(),
                     VD->getType().getAsString()});
     // Secondly, we want to only register floating-point types
     return nullptr;

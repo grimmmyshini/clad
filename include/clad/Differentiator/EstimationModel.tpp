@@ -15,22 +15,31 @@ using namespace clang;
 
 namespace clad {
 
-template <class T> Expr* EstimationModel<T>::IsVariableRegistered(VarDecl* VD) {
+template <class T>
+Expr* EstimationModel<T>::AssignError(StmtDiff refExpr, clang::Expr* errExpr) {
+  return static_cast<T*>(this)->AssignError(refExpr, errExpr);
+}
+
+template <class T> Expr* EstimationModel<T>::SetError(VarDeclDiff declStmt) {
+  return static_cast<T*>(this)->SetError(declStmt);
+}
+
+template <class T> Expr* EstimationModel<T>::IsVariableRegistered(const VarDecl* VD) {
   auto it = m_EstimateVar.find(VD);
   if (it != m_EstimateVar.end())
     return it->second;
   return nullptr;
 }
 
-template <class T> VarDecl* EstimationModel<T>::AddVarToEstimate(VarDecl* VD) {
+template <class T> VarDecl* EstimationModel<T>::AddVarToEstimate(const VarDecl* VD) {
   auto deltaExpr = IsVariableRegistered(VD);
   if (!deltaExpr) {
     // If the varibale declaration is not registered, build another declaration
     // of the same type with '_delta_' prefix
     auto deltaDecl =
-        m_VBase.BuildVarDecl(VD->getType(), "_delta_" + VD->getNameAsString());
+        m_VBase.BuildVarDecl(VD->getType(), "_delta_" + VD->getNameAsString(), m_VBase.getZeroInit(VD->getType()));
     // Add it to the map that tracks the variables and their errors
-    m_EstimateVar[VD] = m_VBase.BuildDeclRef(deltaDecl);
+    m_EstimateVar.emplace(VD, m_VBase.BuildDeclRef(deltaDecl));
     return deltaDecl;
   }
   // If the varibale declaration was already registered, return the declaration
@@ -38,34 +47,19 @@ template <class T> VarDecl* EstimationModel<T>::AddVarToEstimate(VarDecl* VD) {
   return cast<VarDecl>(cast<DeclRefExpr>(deltaExpr)->getDecl());
 }
 
-template <class T> Stmt* EstimationModel<T>::CalculateAggregateError() {
+template <class T> Expr* EstimationModel<T>::CalculateAggregateError() {
   Expr* addExpr = nullptr;
   // Loop over all the error variables and form the final error expression of
-  // the form... _final_error = _d_var * _delta_var + _d_var1 * _delta_var1 +...
+  // the form... _final_error = _delta_var + _delta_var1 +...
   for (auto var : m_EstimateVar) {
     if (!addExpr) {
-      addExpr =
-          m_VBase.BuildOp(BO_Mul, m_VBase.m_Variables[var.first], var.second);
+      addExpr = var.second;
       continue;
     }
-    // Form the espression '_d_vari * _delta_vari', here m_Variable maps each
-    // variable declaration to its derivative
-    auto currExpr =
-        m_VBase.BuildOp(BO_Mul, m_VBase.m_Variables[var.first], var.second);
-    // Now, accumulate the last expression into addExp, basically form something
-    // like, addExpr = addExpr + _d_vari * _delta_vari
-    addExpr = m_VBase.BuildOp(BO_Add, addExpr, currExpr);
+    addExpr = m_VBase.BuildOp(BO_Add, addExpr, var.second);
   }
-  // Build the final error declaration which is initalized with the addExpr we
-  // formed before, basically
-  //<Type> _final_error = _d_var * _delta_var + _d_var1 * _delta_var1 + ...
-  // Where <Type> is the type of the final addition expression
-  // (rhs in the above equation)
-  m_AggregateEstimate =
-      m_VBase.BuildVarDecl(addExpr->getType(), "_final_error", addExpr);
-  // Return a declaration statement that can be directly emitted into the code
-  // to be generated
-  return m_VBase.BuildDeclStmt(m_AggregateEstimate);
+  // Return an expression that can be directly assigned to final error
+  return addExpr;
 }
 
 /// Example class for taylor series approximation based error estimation
@@ -73,13 +67,26 @@ class TaylorApprox : public EstimationModel<TaylorApprox> {
 public:
   // Return an expression of the following kind
   //  dfdx * delta_x
-  Expr* AssignError(StmtDiff* refExpr, Expr* errExpr) {
-    return m_VBase.BuildOp(BO_Mul, refExpr->getExpr_dx(), errExpr);
+  Expr* AssignError(StmtDiff refExpr, Expr* errExpr = nullptr) {
+    Expr* errorExpr = m_VBase.BuildOp(BO_Mul, refExpr.getExpr_dx(), refExpr.getExpr());
+    Expr *ret = nullptr;
+    if (auto declExpr = cast<DeclRefExpr>(refExpr.getExpr())){
+      if(auto delta_expr = IsVariableRegistered(cast<VarDecl>(declExpr->getDecl())))
+        ret = m_VBase.BuildOp(BO_Assign, delta_expr, errorExpr);
+      else
+        m_VBase.diag(DiagnosticsEngine::Warning, refExpr.getExpr()->getEndLoc(),
+                   "Expr was not registered!");
+    }
+    else {
+      m_VBase.diag(DiagnosticsEngine::Warning, refExpr.getExpr()->getEndLoc(),
+                   "Expr was not of correct type!");
+    }
+    return ret;
   }
 
   // For now, we can just return null
   // FIXME: return the true expression
-  Expr* SetError(StmtDiff* declStmt) { return nullptr; }
+  Expr* SetError(VarDeclDiff declStmt) { return nullptr; }
 };
 
 } // namespace clad

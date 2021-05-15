@@ -10,6 +10,7 @@ class Expr;
 class Decl;
 class VarDecl;
 class FunctionDecl;
+class CompoundStmt;
 } // namespace clang
 
 namespace clad {
@@ -28,9 +29,10 @@ using DeclWithContext = std::pair<clang::FunctionDecl*, clang::Decl*>;
 /// fetch derivatives
 /// \tparam SubModel The user defined custom error estimation model
 template <class SubModel> class ErrorEstimationHandler {
-  /// Determines if an estimation is in process; helps decide whether
-  /// to visit error estimation specific code in calls to clad::gradient
-  bool m_EstimationInFlight;
+  /// Keep a track of estimation values to save
+  VisitorBase::Stmts m_ForwardStmts;
+  /// Keep track of the reverse mode _delta_* expressions
+  VisitorBase::Stmts m_ReverseStmts;
   /// Keeps track of subexpression error; useful for error accumulation
   clang::Expr* m_SubExprErr;
   /// Reference to the final error parameter in the augumented target function
@@ -64,6 +66,9 @@ public:
   /// \param[in] VD The variable declaration to be registered
   /// \returns The Variable declaration of the '_delta_' prefixed variable
   clang::VarDecl* RegisterVariable(const clang::VarDecl* VD);
+  /// \brief Calculate aggregate error from m_EstimateVar.
+  /// Builds the final error estimation statement
+  clang::Stmt* CalculateAggregateError();
 
   friend class ReverseModeVisitor;
 };

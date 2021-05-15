@@ -1766,6 +1766,7 @@ namespace clad {
     silenceDiags = !request.VerboseDiags;
     m_Function = FD;
     assert(m_Function && "Must not be null.");
+    m_EstimationInFlight = request.Mode == DiffMode::error_estimation;
 
     DiffParams args {};
     if (request.Args)
@@ -1954,6 +1955,9 @@ namespace clad {
 
     // Creates the ArraySubscriptExprs for the independent variables
     auto idx = 0;
+    llvm::SmallVector<Decl *, 1> declsEst;
+    // Hacky fix to make the independvar error accumulation work
+    llvm::SmallVector<std::pair<VarDecl *, const VarDecl *>, 16> declsClonedEst;
     for (auto arg : args) {
       // FIXME: fix when adding array inputs, now we are just skipping all
       // array/pointer inputs (not treating them as independent variables).
@@ -1974,7 +1978,19 @@ namespace clad {
       m_Variables[arg] = result_at_i;
       idx += 1;
       m_IndependentVars.push_back(arg);
+      // If we are estimating error, build _delta_* decls for
+      // all independent floating point variables
+      if (request.Mode == DiffMode::error_estimation){
+        auto initCloned = arg->getInit() ? Clone(arg->getInit()) : nullptr;
+        auto VD = BuildVarDecl(arg->getType(), arg->getName(), initCloned,
+                               arg->isDirectInit());
+        declsClonedEst.push_back(std::make_pair(VD, arg));
+        if (auto EstVD = errorEstHandler<TaylorApprox>->RegisterVariable(VD))
+          declsEst.push_back(EstVD);
+      }
     }
+    if (request.Mode == DiffMode::error_estimation)
+      addToBlock(BuildDeclStmt(declsEst), m_Globals);
 
     // Function body scope.
     beginScope(Scope::FnScope | Scope::DeclScope);
@@ -2001,6 +2017,25 @@ namespace clad {
         addToCurrentBlock(S, forward);
     else
       addToCurrentBlock(Reverse, forward);
+    // Add the final error statement to the body
+    if (request.Mode == DiffMode::error_estimation) {
+      // Also for now, a hacky fix is to take all independent var's delta at
+      // the end
+      // FIXME: Doesn't workkk
+      for (auto indepVar : declsClonedEst) {
+        Expr* errorExpr = errorEstHandler<TaylorApprox>->m_EstModel.AssignError(
+            StmtDiff(BuildDeclRef(indepVar.first), m_Variables[indepVar.second]));
+        addToCurrentBlock(errorExpr, forward);
+      }
+      // Finally build the final error stmt
+      if (auto addErrorExpr =
+              errorEstHandler<TaylorApprox>->m_EstModel.CalculateAggregateError()) {
+        Expr* finalErr =
+            BuildOp(BO_Assign, errorEstHandler<TaylorApprox>->m_FinalError,
+                    addErrorExpr);
+        addToCurrentBlock(finalErr, forward);
+      }
+    }
     Stmt* gradientBody = endBlock();
     m_Derivative->setBody(gradientBody);
 
@@ -2523,7 +2558,7 @@ namespace clad {
         if (dfdx()) {
           auto add_assign = BuildOp(BO_AddAssign, it->second, dfdx());
           // Add it to the body statements.
-          addToCurrentBlock(add_assign, reverse);;
+          addToCurrentBlock(add_assign, reverse);
         }
         return StmtDiff(clonedDRE, it->second);
       }
@@ -2751,7 +2786,7 @@ namespace clad {
         unsupportedOpWarn(UnOp->getEndLoc());
 
       Expr* subExpr = UnOp->getSubExpr();
-      if(auto SDRE = dyn_cast<DeclRefExpr>(subExpr))
+      if(dyn_cast<DeclRefExpr>(subExpr))
          diff = Visit(subExpr);
       else
          diff = StmtDiff(subExpr);
@@ -3020,6 +3055,16 @@ namespace clad {
       }
       else
         llvm_unreachable("unknown assignment opCode");
+      // If any estimation is in flight and LHS is a DeclRefExpr
+      // We want to make sure we are are emitting the error
+      if (m_EstimationInFlight) {
+        auto LDeclRef = dyn_cast<DeclRefExpr>(L);
+        if (LDeclRef) {
+          Expr* errorExpr =
+              errorEstHandler<TaylorApprox>->m_EstModel.AssignError(Ldiff);
+          addToCurrentBlock(errorExpr, reverse);
+        }
+      }
       // Update the derivative.
       addToCurrentBlock(BuildOp(BO_SubAssign, AssignedDiff, oldValue), reverse);
       // Output statements from Visit(L).
@@ -3063,6 +3108,18 @@ namespace clad {
                           StmtDiff{};
     VarDecl* VDClone = BuildVarDecl(VD->getType(),VD->getNameAsString(),
                                     initDiff.getExpr(), VD->isDirectInit());
+    // If error estimation is in flight, register the VarDecl 
+    // and emmit it to the Global stmts to be initialized at the start
+    // FIXME: We might want to call setError here at some point...
+    if (m_EstimationInFlight) {
+      // If it is non-floating point type, we could not care less about it
+      // in that case, do nothing
+      if (auto EstVD = errorEstHandler<TaylorApprox>->RegisterVariable(VDClone)){
+        llvm::SmallVector<Decl *, 1> decls; 
+        decls.push_back(EstVD);
+        addToBlock(BuildDeclStmt(decls), m_Globals);
+      }
+    }
     m_Variables.emplace(VDClone, BuildDeclRef(VDDerived));
     return VarDeclDiff(VDClone, VDDerived);
   }
