@@ -32,7 +32,7 @@ template <class SubModel> class ErrorEstimationHandler {
   /// Keep a track of estimation values to save
   VisitorBase::Stmts m_ForwardStmts;
   /// Keep track of the reverse mode _delta_* expressions
-  VisitorBase::Stmts m_ReverseStmts;
+  VisitorBase::Stmts m_IndepVarEst;
   /// Keeps track of subexpression error; useful for error accumulation
   clang::Expr* m_SubExprErr;
   /// Reference to the final error parameter in the augumented target function

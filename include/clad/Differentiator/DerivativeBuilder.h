@@ -307,6 +307,7 @@ namespace clad {
     clang::QualType GetCladTapeOfType(clang::QualType T);
 
     template <typename> friend class ErrorEstimationHandler;
+    template <typename> friend class EstimationModel;
   };
   /// A class that represents the result of Visit of ForwardModeVisitor.
   /// Stmt() allows to access the original (cloned) Stmt and Stmt_dx() allows

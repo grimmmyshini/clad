@@ -334,7 +334,9 @@ namespace clad {
     // For intermediate variables, use numbered names (_t0), for everything
     // else first try a name without number (e.g. first try to use _d_x and
     // use _d_x0 only if _d_x is taken).
-    bool countedName = nameBase.startswith("_") && !nameBase.startswith("_d_");
+    bool countedName = nameBase.startswith("_") &&
+                       !nameBase.startswith("_d_") &&
+                       !nameBase.startswith("_delta_");
     std::size_t idx = 0;
     std::size_t& id = countedName ? m_idCtr[nameBase.str()] : idx;
     std::string idStr = countedName ? std::to_string(id) : "";
@@ -1955,9 +1957,6 @@ namespace clad {
 
     // Creates the ArraySubscriptExprs for the independent variables
     auto idx = 0;
-    llvm::SmallVector<Decl *, 1> declsEst;
-    // Hacky fix to make the independvar error accumulation work
-    llvm::SmallVector<std::pair<VarDecl *, const VarDecl *>, 16> declsClonedEst;
     for (auto arg : args) {
       // FIXME: fix when adding array inputs, now we are just skipping all
       // array/pointer inputs (not treating them as independent variables).
@@ -1978,19 +1977,8 @@ namespace clad {
       m_Variables[arg] = result_at_i;
       idx += 1;
       m_IndependentVars.push_back(arg);
-      // If we are estimating error, build _delta_* decls for
-      // all independent floating point variables
-      if (request.Mode == DiffMode::error_estimation){
-        auto initCloned = arg->getInit() ? Clone(arg->getInit()) : nullptr;
-        auto VD = BuildVarDecl(arg->getType(), arg->getName(), initCloned,
-                               arg->isDirectInit());
-        declsClonedEst.push_back(std::make_pair(VD, arg));
-        if (auto EstVD = errorEstHandler<TaylorApprox>->RegisterVariable(VD))
-          declsEst.push_back(EstVD);
-      }
+      
     }
-    if (request.Mode == DiffMode::error_estimation)
-      addToBlock(BuildDeclStmt(declsEst), m_Globals);
 
     // Function body scope.
     beginScope(Scope::FnScope | Scope::DeclScope);
@@ -2017,17 +2005,13 @@ namespace clad {
         addToCurrentBlock(S, forward);
     else
       addToCurrentBlock(Reverse, forward);
-    // Add the final error statement to the body
+
     if (request.Mode == DiffMode::error_estimation) {
-      // Also for now, a hacky fix is to take all independent var's delta at
-      // the end
-      // FIXME: Doesn't workkk
-      for (auto indepVar : declsClonedEst) {
-        Expr* errorExpr = errorEstHandler<TaylorApprox>->m_EstModel.AssignError(
-            StmtDiff(BuildDeclRef(indepVar.first), m_Variables[indepVar.second]));
-        addToCurrentBlock(errorExpr, forward);
-      }
-      // Finally build the final error stmt
+      // Firstly, if a reference to any of the independent variables
+      // were made, add the final error expr to the end of the function
+      for (Stmt* S : errorEstHandler<TaylorApprox>->m_IndepVarEst)
+        addToCurrentBlock(S, forward);
+      // Finally, add the final error accumulation stmt
       if (auto addErrorExpr =
               errorEstHandler<TaylorApprox>->m_EstModel.CalculateAggregateError()) {
         Expr* finalErr =
@@ -2036,6 +2020,7 @@ namespace clad {
         addToCurrentBlock(finalErr, forward);
       }
     }
+
     Stmt* gradientBody = endBlock();
     m_Derivative->setBody(gradientBody);
 
@@ -2554,6 +2539,31 @@ namespace clad {
           // Is not an independent variable, ignored.
           return StmtDiff(clonedDRE);
         }
+        if (m_EstimationInFlight) {
+          // If a variable not registered before and we are visiting it
+          // It is most likely it is an independent variable since all variable
+          // declarations in the body of a function are registered (given
+          // they are the type we want to register) before they are referenced.
+          if (!errorEstHandler<TaylorApprox>->m_EstModel.IsVariableRegistered(
+                  decl)) {
+            auto regVar = errorEstHandler<TaylorApprox>->RegisterVariable(decl);
+            // In the case that the variable was not registered and should not
+            // be registered, we should not care
+            if (regVar) {
+              // Add the _delta_* decl to the global variables
+              addToBlock(BuildDeclStmt(regVar), m_Globals);
+              // Form an error expression that will go at the end of the
+              // function
+              // FIXME: This may not exactly be the right way to go about this
+              // however, for now this works just fine.
+              auto errorExpr =
+                  errorEstHandler<TaylorApprox>->m_EstModel.AssignError(
+                      StmtDiff(BuildDeclRef(decl), m_Variables[decl]));
+              addToBlock(BuildOp(BO_Assign, BuildDeclRef(regVar), errorExpr),
+                                errorEstHandler<TaylorApprox>->m_IndepVarEst);
+            }
+          }
+        }
         // Create the (_result[idx] += dfdx) statement.
         if (dfdx()) {
           auto add_assign = BuildOp(BO_AddAssign, it->second, dfdx());
@@ -3058,15 +3068,18 @@ namespace clad {
       // If any estimation is in flight and LHS is a DeclRefExpr
       // We want to make sure we are are emitting the error
       if (m_EstimationInFlight) {
-        auto LDeclRef = dyn_cast<DeclRefExpr>(L);
+        auto LDeclRef = dyn_cast<DeclRefExpr>(Ldiff.getExpr());
         if (LDeclRef) {
-          Expr* errorExpr =
-              errorEstHandler<TaylorApprox>->m_EstModel.AssignError(Ldiff);
-          addToCurrentBlock(errorExpr, reverse);
+          auto deltaVar =
+              errorEstHandler<TaylorApprox>->m_EstModel.IsVariableRegistered(
+                  dyn_cast<VarDecl>(LDeclRef->getDecl()));
+          if (deltaVar) {
+            auto errorExpr =
+                errorEstHandler<TaylorApprox>->m_EstModel.AssignError(Ldiff);
+            addToCurrentBlock(BuildOp(BO_Assign, deltaVar, errorExpr), reverse);
+          }
         }
       }
-      // Update the derivative.
-      addToCurrentBlock(BuildOp(BO_SubAssign, AssignedDiff, oldValue), reverse);
       // Output statements from Visit(L).
       for (auto it = Lblock_begin; it != Lblock_end; ++it)
         addToCurrentBlock(*it, reverse);

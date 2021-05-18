@@ -31,13 +31,15 @@ template <class T> Expr* EstimationModel<T>::IsVariableRegistered(const VarDecl*
   return nullptr;
 }
 
-template <class T> VarDecl* EstimationModel<T>::AddVarToEstimate(const VarDecl* VD) {
+template <class T>
+VarDecl* EstimationModel<T>::AddVarToEstimate(const VarDecl* VD) {
   auto deltaExpr = IsVariableRegistered(VD);
   if (!deltaExpr) {
     // If the varibale declaration is not registered, build another declaration
     // of the same type with '_delta_' prefix
-    auto deltaDecl =
-        m_VBase.BuildVarDecl(VD->getType(), "_delta_" + VD->getNameAsString(), m_VBase.getZeroInit(VD->getType()));
+    auto deltaDecl = m_VBase.BuildVarDecl(
+        m_VBase.m_Context.DoubleTy, "_delta_" + VD->getNameAsString(),
+        m_VBase.getZeroInit(m_VBase.m_Context.DoubleTy));
     // Add it to the map that tracks the variables and their errors
     m_EstimateVar.emplace(VD, m_VBase.BuildDeclRef(deltaDecl));
     return deltaDecl;
@@ -62,26 +64,21 @@ template <class T> Expr* EstimationModel<T>::CalculateAggregateError() {
   return addExpr;
 }
 
+template <class T> Expr* EstimationModel<T>::GetFloatingTypeLiteral(double val){
+  return FloatingLiteral::Create(m_VBase.m_Context, llvm::APFloat(val), true,
+                                 m_VBase.m_Context.DoubleTy, noLoc);
+}
+
 /// Example class for taylor series approximation based error estimation
 class TaylorApprox : public EstimationModel<TaylorApprox> {
 public:
   // Return an expression of the following kind
   //  dfdx * delta_x
   Expr* AssignError(StmtDiff refExpr, Expr* errExpr = nullptr) {
-    Expr* errorExpr = m_VBase.BuildOp(BO_Mul, refExpr.getExpr_dx(), refExpr.getExpr());
-    Expr *ret = nullptr;
-    if (auto declExpr = cast<DeclRefExpr>(refExpr.getExpr())){
-      if(auto delta_expr = IsVariableRegistered(cast<VarDecl>(declExpr->getDecl())))
-        ret = m_VBase.BuildOp(BO_Assign, delta_expr, errorExpr);
-      else
-        m_VBase.diag(DiagnosticsEngine::Warning, refExpr.getExpr()->getEndLoc(),
-                   "Expr was not registered!");
-    }
-    else {
-      m_VBase.diag(DiagnosticsEngine::Warning, refExpr.getExpr()->getEndLoc(),
-                   "Expr was not of correct type!");
-    }
-    return ret;
+    auto epsExpr =
+        GetFloatingTypeLiteral(std::numeric_limits<float>::epsilon());
+    return m_VBase.BuildOp(BO_Mul, refExpr.getExpr_dx(),
+                           m_VBase.BuildOp(BO_Mul, refExpr.getExpr(), epsExpr));
   }
 
   // For now, we can just return null

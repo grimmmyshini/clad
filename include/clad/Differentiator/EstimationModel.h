@@ -88,6 +88,10 @@ public:
   /// \brief Calculate aggregate error from m_EstimateVar.
   /// Builds the final error estimation statement
   clang::Expr* CalculateAggregateError();
+  /// \brief Gets a floating point value as a literal expr
+  /// \param[in] val The value to turn into a expr
+  /// \returns A literal expression equivalent to the input val
+  clang::Expr* GetFloatingTypeLiteral(double val);
 
   friend class ReverseModeVisitor;
 };

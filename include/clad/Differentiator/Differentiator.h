@@ -169,11 +169,11 @@ namespace clad {
   }
 
   template<typename ArgSpec = const char *, typename F>
-  CladFunction<ExtractDerivedFnTraits_t<F>> __attribute__((annotate("E")))
+  CladFunction<ExtractEstDerivedFnTraits_t<F>> __attribute__((annotate("E")))
   error_estimation(F f, ArgSpec args = "", const char* code = "") {
     assert(f && "Must pass in a non-0 argument");
-    return CladFunction<ExtractDerivedFnTraits_t<F>>(
-      reinterpret_cast<ExtractDerivedFnTraits_t<F>>(f) /* will be replaced by estimation code*/,
+    return CladFunction<ExtractEstDerivedFnTraits_t<F>>(
+      reinterpret_cast<ExtractEstDerivedFnTraits_t<F>>(f) /* will be replaced by estimation code*/,
       code);
   }
 
