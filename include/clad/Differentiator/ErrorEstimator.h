@@ -27,12 +27,9 @@ using DeclWithContext = std::pair<clang::FunctionDecl*, clang::Decl*>;
 
 /// The estimation handler which interfaces with Clad's reverse mode visitors to
 /// fetch derivatives
-/// \tparam SubModel The user defined custom error estimation model
-template <class SubModel> class ErrorEstimationHandler {
-  /// Keep a track of estimation values to save
-  VisitorBase::Stmts m_ForwardStmts;
-  /// Keep track of the reverse mode _delta_* expressions
-  VisitorBase::Stmts m_IndepVarEst;
+class ErrorEstimationHandler {
+  /// Keeps a track of the delta error expression we shouldn't emit 
+  bool m_DoNotEmitDelta = false;
   /// Keeps track of subexpression error; useful for error accumulation
   clang::Expr* m_SubExprErr;
   /// Reference to the final error parameter in the augumented target function
@@ -43,11 +40,12 @@ template <class SubModel> class ErrorEstimationHandler {
   // since we do not derive from it
   VisitorBase m_VBase;
   /// An instance of the custom error estimation model to be used
-  EstimationModel<SubModel> m_EstModel;
+  EstimationModel* m_EstModel;
 
 public:
   ErrorEstimationHandler(DerivativeBuilder& builder)
-      : m_builder(builder), m_VBase(VisitorBase(builder)), m_EstModel(m_VBase) {}
+      : m_builder(builder), m_VBase(VisitorBase(builder)) {
+  }
   ~ErrorEstimationHandler() {}
   /// \brief Function to calculate the estimated error in a function.
   /// This function internally calls Derive and performs some housekeeping tasks
@@ -65,7 +63,7 @@ public:
   /// considered for the final estimation.
   /// \param[in] VD The variable declaration to be registered
   /// \returns The Variable declaration of the '_delta_' prefixed variable
-  clang::VarDecl* RegisterVariable(const clang::VarDecl* VD);
+  clang::VarDecl* RegisterVariable(clang::VarDecl* VD);
   /// \brief Calculate aggregate error from m_EstimateVar.
   /// Builds the final error estimation statement
   clang::Stmt* CalculateAggregateError();
@@ -74,7 +72,5 @@ public:
 };
 
 } // namespace clad
-
-#include "ErrorEstimator.tpp"
 
 #endif // CLAD_ERROR_ESTIMATOR_H

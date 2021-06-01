@@ -1,3 +1,4 @@
+#include "clad/Differentiator/EstimationModel.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 
 #include "llvm/ADT/SmallSet.h"
@@ -49,7 +50,7 @@ namespace clad {
     /// A flag to enable/disable diag warnings/errors during differentiation.
     bool VerboseDiags = false; 
     /// Store the type of user specified model for error estimation
-    const clang::Type* EstimationSubModelType = nullptr; 
+    EstimationModel* CustomModel = nullptr; 
 
     void updateCall(clang::FunctionDecl* FD, clang::Sema& SemaRef);
   };

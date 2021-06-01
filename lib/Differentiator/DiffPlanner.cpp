@@ -228,10 +228,6 @@ namespace clad {
         request.Mode = DiffMode::reverse;
       } else {
         request.Mode = DiffMode::error_estimation;
-        // request.EstimationSubModelType = FD->getTemplateSpecializationArgs()
-        //                                      ->get(2)
-        //                                      .getAsType()
-        //                                      .getTypePtrOrNull();
       }
       request.CallContext = E;
       request.CallUpdateRequired = true;

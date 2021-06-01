@@ -34,8 +34,8 @@ using namespace clang;
 
 namespace clad {
 
-  template <typename T>
-  std::unique_ptr<ErrorEstimationHandler<T>> errorEstHandler = nullptr;
+  // A pointer to a the handler to be used for esstimation requests
+  static std::unique_ptr<ErrorEstimationHandler> errorEstHandler = nullptr;
 
   DerivativeBuilder::DerivativeBuilder(clang::Sema& S, plugin::CladPlugin& P)
     : m_Sema(S), m_CladPlugin(P), m_Context(S.getASTContext()),
@@ -88,11 +88,10 @@ namespace clad {
       JacobianModeVisitor J(*this);
       result = J.Derive(FD, request);
     } else if (request.Mode == DiffMode::error_estimation) {
-      // For now, we hardcode the model...
-      if (!errorEstHandler<TaylorApprox>)
-        errorEstHandler<TaylorApprox>.reset(
-            new ErrorEstimationHandler<TaylorApprox>(*this));
-      result = errorEstHandler<TaylorApprox>->Calculate(FD, request);
+      // Set the handler and call calculate to begin estimation
+      if (!errorEstHandler)
+        errorEstHandler.reset(new ErrorEstimationHandler(*this));
+      result = errorEstHandler->Calculate(FD, request);
     }
 
     if (result.first)
@@ -1941,7 +1940,7 @@ namespace clad {
     m_Result = BuildDeclRef(params[params.size() - numExtraParam]);
     // Reference to the final error statement
     if (request.Mode == DiffMode::error_estimation)
-      errorEstHandler<TaylorApprox>->m_FinalError = BuildDeclRef(params.back());
+      errorEstHandler->m_FinalError = BuildDeclRef(params.back());
 
     // Turns output array dimension input into APSInt
     auto PVDTotalArgs = m_Function->getParamDecl((m_Function->getNumParams() - 1));
@@ -2007,15 +2006,11 @@ namespace clad {
       addToCurrentBlock(Reverse, forward);
 
     if (request.Mode == DiffMode::error_estimation) {
-      // Firstly, if a reference to any of the independent variables
-      // were made, add the final error expr to the end of the function
-      for (Stmt* S : errorEstHandler<TaylorApprox>->m_IndepVarEst)
-        addToCurrentBlock(S, forward);
       // Finally, add the final error accumulation stmt
       if (auto addErrorExpr =
-              errorEstHandler<TaylorApprox>->m_EstModel.CalculateAggregateError()) {
+              errorEstHandler->m_EstModel->CalculateAggregateError()) {
         Expr* finalErr =
-            BuildOp(BO_Assign, errorEstHandler<TaylorApprox>->m_FinalError,
+            BuildOp(BO_Assign, errorEstHandler->m_FinalError,
                     addErrorExpr);
         addToCurrentBlock(finalErr, forward);
       }
@@ -2539,36 +2534,46 @@ namespace clad {
           // Is not an independent variable, ignored.
           return StmtDiff(clonedDRE);
         }
-        if (m_EstimationInFlight) {
-          // If a variable not registered before and we are visiting it
-          // It is most likely it is an independent variable since all variable
-          // declarations in the body of a function are registered (given
-          // they are the type we want to register) before they are referenced.
-          if (!errorEstHandler<TaylorApprox>->m_EstModel.IsVariableRegistered(
-                  decl)) {
-            auto regVar = errorEstHandler<TaylorApprox>->RegisterVariable(decl);
-            // In the case that the variable was not registered and should not
-            // be registered, we should not care
-            if (regVar) {
-              // Add the _delta_* decl to the global variables
-              addToBlock(BuildDeclStmt(regVar), m_Globals);
-              // Form an error expression that will go at the end of the
-              // function
-              // FIXME: This may not exactly be the right way to go about this
-              // however, for now this works just fine.
-              auto errorExpr =
-                  errorEstHandler<TaylorApprox>->m_EstModel.AssignError(
-                      StmtDiff(BuildDeclRef(decl), m_Variables[decl]));
-              addToBlock(BuildOp(BO_Assign, BuildDeclRef(regVar), errorExpr),
-                                errorEstHandler<TaylorApprox>->m_IndepVarEst);
-            }
-          }
-        }
         // Create the (_result[idx] += dfdx) statement.
         if (dfdx()) {
           auto add_assign = BuildOp(BO_AddAssign, it->second, dfdx());
           // Add it to the body statements.
           addToCurrentBlock(add_assign, reverse);
+        }
+        if (m_EstimationInFlight) {
+          auto deltaVar =
+              errorEstHandler->m_EstModel->IsVariableRegistered(
+                  decl);
+          // If a variable not registered before and we are visiting it
+          // It is most likely it is an independent variable since all
+          // variable declarations in the body of a function are registered
+          // (given they are the type we want to register) before they are
+          // referenced.
+          if (!deltaVar) {
+            auto regVar = errorEstHandler->RegisterVariable(decl);
+            // In the case that the variable was not registered and should not
+            // be registered, we should not care
+            if (regVar) {
+              deltaVar = BuildDeclRef(regVar);
+              // Add the _delta_* decl to the global variables
+              addToBlock(BuildDeclStmt(regVar), m_Globals);
+            }
+          }
+          // If this is a ref to LHS of assignment operator, do not assign
+          // an error, otherwise, go ahead.
+          if (!errorEstHandler->m_DoNotEmitDelta) {
+            // If we have a delta decl now, the variable should be assigned an
+            // error. Call assign error and do the needful. After getting the
+            // error, simply add it to the reverse block
+            if (deltaVar) {
+              auto errorExpr =
+                  errorEstHandler->m_EstModel->AssignError(
+                      StmtDiff(clonedDRE, it->second));
+              addToCurrentBlock(BuildOp(BO_AddAssign, deltaVar, errorExpr),
+                                reverse);
+            }
+          } else
+            errorEstHandler->m_DoNotEmitDelta = false;
         }
         return StmtDiff(clonedDRE, it->second);
       }
@@ -2961,6 +2966,10 @@ namespace clad {
       // Visit LHS, but delay emission of its derivative statements, save them
       // in Lblock
       beginBlock(reverse);
+      // If in error estimation, we do not want to emit the delta statement for
+      // LHS of assignment ops
+      if (m_EstimationInFlight)
+        errorEstHandler->m_DoNotEmitDelta = true;
       Ldiff = Visit(L, dfdx());
       auto Lblock = endBlock(reverse);
       Expr* LCloned = Ldiff.getExpr();
@@ -3065,21 +3074,24 @@ namespace clad {
       }
       else
         llvm_unreachable("unknown assignment opCode");
-      // If any estimation is in flight and LHS is a DeclRefExpr
-      // We want to make sure we are are emitting the error
-      if (m_EstimationInFlight) {
-        auto LDeclRef = dyn_cast<DeclRefExpr>(Ldiff.getExpr());
-        if (LDeclRef) {
+      // For cases like x -= y, we also want to emit the delta of x since the
+      // expression is equivalent to x = x - y.
+      if (m_EstimationInFlight && opCode != BO_Assign) {
+        auto LRef = dyn_cast<DeclRefExpr>(Ldiff.getExpr());
+        if (LRef) {
           auto deltaVar =
-              errorEstHandler<TaylorApprox>->m_EstModel.IsVariableRegistered(
-                  dyn_cast<VarDecl>(LDeclRef->getDecl()));
+              errorEstHandler->m_EstModel->IsVariableRegistered(
+                  dyn_cast<VarDecl>(LRef->getDecl()));
           if (deltaVar) {
             auto errorExpr =
-                errorEstHandler<TaylorApprox>->m_EstModel.AssignError(Ldiff);
-            addToCurrentBlock(BuildOp(BO_Assign, deltaVar, errorExpr), reverse);
+                errorEstHandler->m_EstModel->AssignError(Ldiff);
+            addToCurrentBlock(BuildOp(BO_AddAssign, deltaVar, errorExpr),
+                              reverse);
           }
         }
       }
+      // Update the derivative.
+      addToCurrentBlock(BuildOp(BO_SubAssign, AssignedDiff, oldValue), reverse);
       // Output statements from Visit(L).
       for (auto it = Lblock_begin; it != Lblock_end; ++it)
         addToCurrentBlock(*it, reverse);
@@ -3122,12 +3134,11 @@ namespace clad {
     VarDecl* VDClone = BuildVarDecl(VD->getType(),VD->getNameAsString(),
                                     initDiff.getExpr(), VD->isDirectInit());
     // If error estimation is in flight, register the VarDecl 
-    // and emmit it to the Global stmts to be initialized at the start
-    // FIXME: We might want to call setError here at some point...
+    // and emit it to the Global stmts to be initialized at the start
     if (m_EstimationInFlight) {
       // If it is non-floating point type, we could not care less about it
       // in that case, do nothing
-      if (auto EstVD = errorEstHandler<TaylorApprox>->RegisterVariable(VDClone)){
+      if (auto EstVD = errorEstHandler->RegisterVariable(VDClone)){
         llvm::SmallVector<Decl *, 1> decls; 
         decls.push_back(EstVD);
         addToBlock(BuildDeclStmt(decls), m_Globals);

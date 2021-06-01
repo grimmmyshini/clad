@@ -32,11 +32,14 @@ namespace clang {
 namespace clad {
   struct DiffRequest;
   namespace plugin {
+    /// Register any custom error estimation model a user provides   
+    using ErrorEstimationModelRegistry = llvm::Registry<EstimationModel>;
     struct DifferentiationOptions {
       DifferentiationOptions()
         : DumpSourceFn(false), DumpSourceFnAST(false), DumpDerivedFn(false),
           DumpDerivedAST(false), GenerateSourceFile(false),
-          ValidateClangVersion(false) { }
+          ValidateClangVersion(false), CustomEstimationModel(false),
+          CustomModel("") { }
 
       bool DumpSourceFn : 1;
       bool DumpSourceFnAST : 1;
@@ -44,6 +47,8 @@ namespace clad {
       bool DumpDerivedAST : 1;
       bool GenerateSourceFile : 1;
       bool ValidateClangVersion : 1;
+      bool CustomEstimationModel : 1;
+      std::string CustomModel;
     };
 
     class CladPlugin : public clang::ASTConsumer {
@@ -117,19 +122,35 @@ namespace clad {
             if (!IsRunningOnExpectedClangVersion())
               return false; // Tells clang not to create the plugin.
           }
-          else if (args[i] == "-help") {
+          else if (args[i] == "-fcustom-estimation-model"){
+            m_DO.CustomEstimationModel = true;
+            if (++i == e) {
+              llvm::errs()
+                  << "No shared object was specified, please refer help "
+                     "for more information. Terminating build.";
+              return false;
+            }
+            m_DO.CustomModel = args[i];
+          } else if (args[i] == "-help") {
             // Print some help info.
-            llvm::errs() <<
-              "Option set for the clang-based automatic differentiator - clad:\n\n" <<
-              "-fdump-source-fn - Prints out the source code of the function.\n" <<
-              "-fdump-source-fn-ast - Prints out the AST of the function.\n" <<
-              "-fdump-derived-fn - Prints out the source code of the derivative.\n" <<
-              "-fdump-derived-fn-ast - Prints out the AST of the derivative.\n" <<
-              "-fgenerate-source-file - Produces a file containing the derivatives.\n";
+            llvm::errs()
+                << "Option set for the clang-based automatic differentiator - "
+                   "clad:\n\n"
+                << "-fdump-source-fn - Prints out the source code of the "
+                   "function.\n"
+                << "-fdump-source-fn-ast - Prints out the AST of the "
+                   "function.\n"
+                << "-fdump-derived-fn - Prints out the source code of the "
+                   "derivative.\n"
+                << "-fdump-derived-fn-ast - Prints out the AST of the "
+                   "derivative.\n"
+                << "-fgenerate-source-file - Produces a file containing the "
+                   "derivatives.\n"
+                << "-fcustom-estimation-model - allows user to send in a "
+                   "shared object to use as the custom estimation model.\n";
 
             llvm::errs() << "-help - Prints out this screen.\n\n";
-          }
-          else {
+          } else {
             llvm::errs() << "clad: Error: invalid option "
                          << args[i] << "\n";
             return false; // Tells clang not to create the plugin.
