@@ -6,6 +6,7 @@
 #include <utility>
 
 namespace clang {
+class Stmt;
 class Expr;
 class Decl;
 class VarDecl;
@@ -30,8 +31,10 @@ using DeclWithContext = std::pair<clang::FunctionDecl*, clang::Decl*>;
 class ErrorEstimationHandler {
   /// Keeps a track of the delta error expression we shouldn't emit 
   bool m_DoNotEmitDelta = false;
-  /// Keeps track of subexpression error; useful for error accumulation
-  clang::Expr* m_SubExprErr;
+  clang::Stmt* m_InLoopExpr = nullptr;
+  /// Keeps track of the most recent replacements for the estimation variables
+  /// so that we can use the correct value in the case of re-assignments
+  std::unordered_map<const clang::VarDecl*, clang::Expr*> m_ReplaceEstVar;
   /// Reference to the final error parameter in the augumented target function
   clang::Expr* m_FinalError;
   /// A reference to the builder instance so that we can call Derive of visitor
@@ -67,6 +70,17 @@ public:
   /// \brief Calculate aggregate error from m_EstimateVar.
   /// Builds the final error estimation statement
   clang::Stmt* CalculateAggregateError();
+  /// \brief Update the replacement of variable declrations.
+  /// In the case of reassignments, we want to save the value of RHS
+  /// previously encountered so that we can correctly use in error estimation
+  /// \param[in] VD The variable declaration to update replacement for
+  /// \param[in] init The initalizer for above variable declaration
+  /// \returns statement to the full variable declaration of the replacement
+  clang::Stmt* UpdateReplacement(clang::VarDecl* VD, clang::Expr* init);
+  /// \brief Get a declRefExpr of the replaced value for an estimate variable
+  /// \param[in] VD The variable declaration to get the replacement for
+  /// \returns A reference to the replaced declRefExpr
+  clang::Expr* GetReplacement(clang::VarDecl* VD);
 
   friend class ReverseModeVisitor;
 };

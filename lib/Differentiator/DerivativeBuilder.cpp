@@ -2557,6 +2557,10 @@ namespace clad {
               deltaVar = BuildDeclRef(regVar);
               // Add the _delta_* decl to the global variables
               addToBlock(BuildDeclStmt(regVar), m_Globals);
+              // Get a replacement
+              addToBlock(
+                  errorEstHandler->UpdateReplacement(decl, BuildDeclRef(decl)),
+                  m_Globals);
             }
           }
           // If this is a ref to LHS of assignment operator, do not assign
@@ -2566,12 +2570,14 @@ namespace clad {
             // error. Call assign error and do the needful. After getting the
             // error, simply add it to the reverse block
             if (deltaVar) {
-              auto errorExpr =
-                  errorEstHandler->m_EstModel->AssignError(
-                      StmtDiff(clonedDRE, it->second));
+              // first check if the current var has a replacement
+              auto replacedExpr = errorEstHandler->GetReplacement(decl);
+              // then assign error as usual
+              auto errorExpr = errorEstHandler->m_EstModel->AssignError(
+                  StmtDiff(replacedExpr, it->second));
               addToCurrentBlock(BuildOp(BO_AddAssign, deltaVar, errorExpr),
                                 reverse);
-            }
+            } 
           } else
             errorEstHandler->m_DoNotEmitDelta = false;
         }
@@ -2816,6 +2822,7 @@ namespace clad {
     StmtDiff Rdiff{};
     auto L = BinOp->getLHS();
     auto R = BinOp->getRHS();
+    Expr*  loopReplExpr = nullptr;
     // If it is an assignment operator, its result is a reference to LHS and
     // we should return it.
     Expr* ResultRef = nullptr;
@@ -3076,17 +3083,28 @@ namespace clad {
         llvm_unreachable("unknown assignment opCode");
       // For cases like x -= y, we also want to emit the delta of x since the
       // expression is equivalent to x = x - y.
-      if (m_EstimationInFlight && opCode != BO_Assign) {
+      if (m_EstimationInFlight) {
         auto LRef = dyn_cast<DeclRefExpr>(Ldiff.getExpr());
         if (LRef) {
+          auto Ldecl = dyn_cast<VarDecl>(LRef->getDecl());
           auto deltaVar =
-              errorEstHandler->m_EstModel->IsVariableRegistered(
-                  dyn_cast<VarDecl>(LRef->getDecl()));
+              errorEstHandler->m_EstModel->IsVariableRegistered(Ldecl);
           if (deltaVar) {
-            auto errorExpr =
-                errorEstHandler->m_EstModel->AssignError(Ldiff);
-            addToCurrentBlock(BuildOp(BO_AddAssign, deltaVar, errorExpr),
-                              reverse);
+            // first check if the current var has a replacement
+            auto replacedExpr = errorEstHandler->GetReplacement(Ldecl);
+            // only emitt the error for compound assignments
+            if (opCode != BO_Assign) {
+              auto errorExpr = errorEstHandler->m_EstModel->AssignError(
+                  StmtDiff(replacedExpr, Ldiff.getExpr_dx()));
+                  
+              addToCurrentBlock(BuildOp(BO_AddAssign, deltaVar, errorExpr),
+                                reverse);
+            }
+            // update and emit the new replacement anyway as long as the
+            // variable is registered
+            addToCurrentBlock(errorEstHandler->UpdateReplacement(Ldecl, Rdiff.getExpr()),
+                              forward);
+            
           }
         }
       }
@@ -3138,10 +3156,11 @@ namespace clad {
     if (m_EstimationInFlight) {
       // If it is non-floating point type, we could not care less about it
       // in that case, do nothing
-      if (auto EstVD = errorEstHandler->RegisterVariable(VDClone)){
-        llvm::SmallVector<Decl *, 1> decls; 
-        decls.push_back(EstVD);
-        addToBlock(BuildDeclStmt(decls), m_Globals);
+      if (auto EstVD = errorEstHandler->RegisterVariable(VDClone)) {
+        addToBlock(
+            errorEstHandler->UpdateReplacement(VDClone, initDiff.getExpr()),
+            m_Globals);
+        addToBlock(BuildDeclStmt(EstVD), m_Globals);
       }
     }
     m_Variables.emplace(VDClone, BuildDeclRef(VDDerived));
