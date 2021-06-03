@@ -3212,7 +3212,7 @@ namespace clad {
         addToCurrentBlock(BuildOp(BO_Assign, replInit, initDiff.getExpr()));
         addToBlock(BuildDeclStmt(EstVD), m_Globals);
         // Update VDClone
-        if(!initDiff.getExpr())
+        if(initDiff.getExpr())
           VDClone->setInit(replInit);
       }
     }
