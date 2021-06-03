@@ -31,7 +31,16 @@ using DeclWithContext = std::pair<clang::FunctionDecl*, clang::Decl*>;
 class ErrorEstimationHandler {
   /// Keeps a track of the delta error expression we shouldn't emit 
   bool m_DoNotEmitDelta = false;
-  clang::Stmt* m_InLoopExpr = nullptr;
+  /// Keeps a track of if the current variable's replacement should be emitted 
+  /// Handle special cases like pre inc/dec operators. 
+  /// TODO: Remove this and register variables on sight in VisitUnOp
+  bool m_DoNotEmitRepl = false;
+  // Keeps track of whether we are in a compound statement, if so, we need to
+  // save the declaration of any variable whose scope is limited so that we
+  // can use those values later.
+  int m_InCompountStmt = 0;
+  // Inside of a different scope, we
+  llvm::SmallVector<clang::Stmt*, 16> m_EarlyDecls;
   /// Keeps track of the most recent replacements for the estimation variables
   /// so that we can use the correct value in the case of re-assignments
   std::unordered_map<const clang::VarDecl*, clang::Expr*> m_ReplaceEstVar;
@@ -76,7 +85,7 @@ public:
   /// \param[in] VD The variable declaration to update replacement for
   /// \param[in] init The initalizer for above variable declaration
   /// \returns statement to the full variable declaration of the replacement
-  clang::Stmt* UpdateReplacement(clang::VarDecl* VD, clang::Expr* init);
+  clang::Stmt* UpdateReplacement(clang::VarDecl* VD, clang::Expr* init = nullptr);
   /// \brief Get a declRefExpr of the replaced value for an estimate variable
   /// \param[in] VD The variable declaration to get the replacement for
   /// \returns A reference to the replaced declRefExpr

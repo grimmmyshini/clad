@@ -2558,9 +2558,13 @@ namespace clad {
               // Add the _delta_* decl to the global variables
               addToBlock(BuildDeclStmt(regVar), m_Globals);
               // Get a replacement
-              addToBlock(
-                  errorEstHandler->UpdateReplacement(decl, BuildDeclRef(decl)),
-                  m_Globals);
+              if(!errorEstHandler->m_DoNotEmitRepl)
+                addToBlock(
+                    errorEstHandler->UpdateReplacement(decl, BuildDeclRef(decl)),
+                    m_Globals);
+              else
+                errorEstHandler->m_DoNotEmitRepl = false; 
+                
             }
           }
           // If this is a ref to LHS of assignment operator, do not assign
@@ -2795,9 +2799,47 @@ namespace clad {
     }
     else if (opCode == UO_PostInc || opCode == UO_PostDec) {
       diff = Visit(UnOp->getSubExpr(), dfdx());
+      // TODO: only do this for registered vars
+      if(m_EstimationInFlight){
+        // For post decrement, we should only update after we have 
+        // visited the underlying expression
+        if(auto declRef = dyn_cast<DeclRefExpr>(Clone(UnOp->getSubExpr()))){
+          auto decl = dyn_cast<VarDecl>(declRef->getDecl());
+          // Create a new replacement
+          addToBlock(errorEstHandler->UpdateReplacement(decl),
+                     m_Globals);
+          auto replDeclRef =
+              errorEstHandler->GetReplacement(decl);
+          // First create _r_x_* = x;
+          auto assignExpr = BuildOp(BO_Assign, replDeclRef, diff.getExpr());
+          // Add to current block
+          addToCurrentBlock(assignExpr);
+          // Then create the orignal operation expr with the reploaced decl and
+          // add to current block. Any calls to getReplacement will hereafter
+          // reflect the change;
+          addToCurrentBlock(BuildOp(opCode, replDeclRef));
+        }
+      }
       ResultRef = diff.getExpr_dx();
     }
     else if (opCode == UO_PreInc || opCode == UO_PreDec) {
+      if(m_EstimationInFlight){
+        if(auto declRef = dyn_cast<DeclRefExpr>(Clone(UnOp->getSubExpr()))){
+          auto decl = dyn_cast<VarDecl>(declRef->getDecl());
+          errorEstHandler->m_DoNotEmitRepl = true;
+          // Create a new replacement
+          addToBlock(errorEstHandler->UpdateReplacement(decl),
+                     m_Globals);
+          auto replDeclRef =
+              errorEstHandler->GetReplacement(decl);
+          // First create _r_x_* = x;
+          auto assignExpr = BuildOp(BO_Assign, replDeclRef, declRef);
+          // Add to current block
+          addToCurrentBlock(assignExpr);
+          // Then create a _r_x_*++ operation and add to current block
+          addToCurrentBlock(BuildOp(opCode, replDeclRef));
+        }
+      }
       diff = Visit(UnOp->getSubExpr(), dfdx());
     }
     else {
@@ -3096,15 +3138,21 @@ namespace clad {
             if (opCode != BO_Assign) {
               auto errorExpr = errorEstHandler->m_EstModel->AssignError(
                   StmtDiff(replacedExpr, Ldiff.getExpr_dx()));
-                  
+
               addToCurrentBlock(BuildOp(BO_AddAssign, deltaVar, errorExpr),
                                 reverse);
             }
             // update and emit the new replacement anyway as long as the
             // variable is registered
-            addToCurrentBlock(errorEstHandler->UpdateReplacement(Ldecl, Rdiff.getExpr()),
+            auto replDecl = errorEstHandler->UpdateReplacement(Ldecl);
+            auto replDeclRef = errorEstHandler->GetReplacement(Ldecl);
+            addToBlock(replDecl, m_Globals);
+            addToCurrentBlock(BuildOp(BO_Assign,
+                                      replDeclRef,
+                                      Rdiff.getExpr()),
                               forward);
-            
+            // Update Rdiff
+            Rdiff = StmtDiff(replDeclRef, Rdiff.getStmt_dx());
           }
         }
       }
@@ -3158,9 +3206,14 @@ namespace clad {
       // in that case, do nothing
       if (auto EstVD = errorEstHandler->RegisterVariable(VDClone)) {
         addToBlock(
-            errorEstHandler->UpdateReplacement(VDClone, initDiff.getExpr()),
+            errorEstHandler->UpdateReplacement(VDClone),
             m_Globals);
+        auto replInit = errorEstHandler->GetReplacement(VDClone);
+        addToCurrentBlock(BuildOp(BO_Assign, replInit, initDiff.getExpr()));
         addToBlock(BuildDeclStmt(EstVD), m_Globals);
+        // Update VDClone
+        if(!initDiff.getExpr())
+          VDClone->setInit(replInit);
       }
     }
     m_Variables.emplace(VDClone, BuildDeclRef(VDDerived));
