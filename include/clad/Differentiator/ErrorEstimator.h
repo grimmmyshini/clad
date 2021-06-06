@@ -31,28 +31,38 @@ using DeclWithContext = std::pair<clang::FunctionDecl*, clang::Decl*>;
 class ErrorEstimationHandler {
   /// Keeps a track of the delta error expression we shouldn't emit 
   bool m_DoNotEmitDelta = false;
-  /// Keeps a track of if the current variable's replacement should be emitted 
-  /// Handle special cases like pre inc/dec operators. 
-  /// TODO: Remove this and register variables on sight in VisitUnOp
-  bool m_DoNotEmitRepl = false;
-  // Keeps track of whether we are in a compound statement, if so, we need to
-  // save the declaration of any variable whose scope is limited so that we
-  // can use those values later.
-  int m_InCompountStmt = 0;
-  // Inside of a different scope, we
-  llvm::SmallVector<clang::Stmt*, 16> m_EarlyDecls;
-  /// Keeps track of the most recent replacements for the estimation variables
-  /// so that we can use the correct value in the case of re-assignments
-  std::unordered_map<const clang::VarDecl*, clang::Expr*> m_ReplaceEstVar;
+  /// Keeps track of the push expressions to add to forward mode post visitation
+  clang::Expr* m_pushExpr = nullptr;
   /// Reference to the final error parameter in the augumented target function
   clang::Expr* m_FinalError;
-  /// A reference to the builder instance so that we can call Derive of visitor
+  /// A reference to the builder instance so that we can call Derive
   DerivativeBuilder& m_builder;
   /// A instance of visitor base to utilize all functionalities from the same 
   // since we do not derive from it
   VisitorBase m_VBase;
   /// An instance of the custom error estimation model to be used
   EstimationModel* m_EstModel;
+  /// A struct to store push/pop/top expressions for a clad-type tape
+  struct TapeInfo
+  {
+    /// Store reference to the push() expression
+    clang::Expr* push;
+    /// Store reference to the pop() expression
+    clang::Expr* pop;
+    /// Store reference to the back()/top() expression
+    clang::Expr* top;
+    /// Store a reference to the tape instance being used
+    clang::Expr *tapeRef;
+
+    /// \brief Constructor for the struct
+    TapeInfo(clang::Expr* psh, clang::Expr* pp, clang::Expr* tp, clang::Expr* tref) : push(psh), pop(pp), top(tp), tapeRef(tref) {}
+    /// \brief Default constructor
+    TapeInfo() : push(nullptr), pop(nullptr), top(nullptr), tapeRef(nullptr) {}
+  };
+  /// Keeps track of the tape info for the estimation variables
+  /// so that we can use the correct tape and value in the case of 
+  /// re-assignments, loops etc. 
+  std::unordered_map<const clang::VarDecl*, TapeInfo> m_ReplaceEstVar;
 
 public:
   ErrorEstimationHandler(DerivativeBuilder& builder)
@@ -60,8 +70,7 @@ public:
   }
   ~ErrorEstimationHandler() {}
   /// \brief Function to calculate the estimated error in a function.
-  /// This function internally calls Derive and performs some housekeeping tasks
-  /// required to set up error estimation
+  /// This function internally calls Derive
   /// \param[in] FD The function declaration on which estimation is performed
   /// \param[in] request The meta information about the kind of differentiation
   /// to be used for estimation
@@ -79,17 +88,10 @@ public:
   /// \brief Calculate aggregate error from m_EstimateVar.
   /// Builds the final error estimation statement
   clang::Stmt* CalculateAggregateError();
-  /// \brief Update the replacement of variable declrations.
-  /// In the case of reassignments, we want to save the value of RHS
-  /// previously encountered so that we can correctly use in error estimation
-  /// \param[in] VD The variable declaration to update replacement for
-  /// \param[in] init The initalizer for above variable declaration
-  /// \returns statement to the full variable declaration of the replacement
-  clang::Stmt* UpdateReplacement(clang::VarDecl* VD, clang::Expr* init = nullptr);
-  /// \brief Get a declRefExpr of the replaced value for an estimate variable
+  /// \brief Get the tape info for an estimate variable
   /// \param[in] VD The variable declaration to get the replacement for
-  /// \returns A reference to the replaced declRefExpr
-  clang::Expr* GetReplacement(clang::VarDecl* VD);
+  /// \returns A set of tape push/pop/top expressions
+  TapeInfo GetReplacement(clang::VarDecl* VD);
 
   friend class ReverseModeVisitor;
 };

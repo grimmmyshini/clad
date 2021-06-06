@@ -2,68 +2,53 @@
 #define CLAD_ESTIMATION_MODEL_H
 
 #include <unordered_map>
+#include "DerivativeBuilder.h"
 
 namespace clang {
 class VarDecl;
 class Stmt;
 class Expr;
+class ASTContext;
 } // namespace clang
-
-namespace clad {
-class StmtDiff;
-class VisitorBase;
-class ReverseModeVisitor;
-class VarDeclDiff;
-} // namespace clad
 
 namespace clad {
 
 /// A class to facilitate usage of user defined error estimation models
-class EstimationModel {
+class EstimationModel : public VisitorBase {
 protected:
-  /// An aggregate error estimate taking into account all intermediate
-  /// floats/truncated int values
-  clang::VarDecl* m_AggregateEstimate;
   /// Map to keep track of the error estimate variables for each declaration
-  /// reference could be removed if we come up with annotations for the estimate
-  /// vars
+  /// reference
   std::unordered_map<const clang::VarDecl*, clang::Expr*> m_EstimateVar;
-  /// This is the reference to the VisitorBase class which will be used to build
-  /// various kinds of expressions and statements
-  VisitorBase* m_VBase = nullptr;
 
 public:
-  EstimationModel();
+  EstimationModel(DerivativeBuilder& builder) : VisitorBase(builder) { }
   virtual ~EstimationModel();
   /// \brief Check if a variable is registered for estimation
   /// \param[in] VD The variable to check
   /// \returns The delta expression of the variable if it is registered, nullptr
   /// otherwise
   clang::Expr* IsVariableRegistered(const clang::VarDecl* VD);
-  /// \brief Track the varibale declaration and utilize it in error estimation
+  /// \brief Track the variable declaration and utilize it in error estimation
   /// \param[in] VD The declaration to track
-  /// \returns The varibale declaration of the delta value
+  /// \returns The variable declaration of the delta value
   clang::VarDecl* AddVarToEstimate(clang::VarDecl* VD);
   /// \brief User overridden function to return the error expression of a
   /// specific estimation model. The error expression is returned in the form of
   /// a clang::Expr, the user may use BuildOp() to build the final expression.
   /// An example of a possible override is:
   /// \code
-  /// clang::Expr* AssignError(clad::StmtDiff* refExpr, clang::Expr* errExpr) {
-  ///   return BuildOp(BO_Mul, refExpr->getExpr_dx(), errExpr);
+  /// clang::Expr* AssignError(clad::StmtDiff* refExpr) {
+  ///   return BuildOp(BO_Mul, refExpr->getExpr_dx(), refExpr->getExpr());
   /// }
   /// \endcode
-  /// The above returns the expression: drefExpr * errExpr which is the error
-  /// expression for Taylor approximation model
+  /// The above returns the expression: drefExpr * refExpr. For more examples
+  /// refer the TaylorApprox class.
   ///
   /// \param[in] refExpr The reference of the expression to which the error has
   /// to be assigned, this is a StmtDiff type hence one can use getExpr() to
   /// get the unmodified expression and getExpr_dx() to get the absolute
   /// derivative of the same
-  /// \param[in] errExpr This is the error in the refExpr so far. Errors are
-  /// assigned to expressions at every step so this value varies as does the
-  /// depth of the main expression we are evaluating.
-  virtual clang::Expr *AssignError(StmtDiff refExpr, clang::Expr *errExpr = nullptr) = 0;
+  virtual clang::Expr *AssignError(StmtDiff refExpr) = 0;
   /// \brief Initializes errors for '_delta_' statements
   /// This function returns the initial error assignment. Similar to
   /// AssignError, however, this function is only called during declaration of
@@ -77,7 +62,7 @@ public:
   /// }
   /// \endcode
   /// The above will return a 0 expression to be assigned to the '_delta_'
-  /// declaration of decl
+  /// declaration of input decl
   ///
   /// \param[in] decl The declaration to which the error has to be assigned.
   /// \returns The error expression for declaration statements.
@@ -85,20 +70,37 @@ public:
   /// \brief Calculate aggregate error from m_EstimateVar.
   /// Builds the final error estimation statement
   clang::Expr* CalculateAggregateError();
-  /// \brief Gets a floating point value as a literal expr
-  /// \param[in] val The value to turn into a expr
-  /// \returns A literal expression equivalent to the input val
-  clang::Expr* GetFloatingTypeLiteral(double val);
 
   friend class ErrorEstimationHandler;
+};
+
+/// A base class to build the error estimation registry over
+class EstimationPlugin {
+  public:
+  /// \brief Function that will return the instance of the user registered custom model
+  virtual std::unique_ptr<EstimationModel>
+    InstantiateCustomModel(DerivativeBuilder &builder) = 0;
+};
+
+/// A class used to register custom plugins 
+/// \tparam The custom user class
+template <typename CustomClass>
+class EstimationPluginHelper : public EstimationPlugin {
+  public:
+  /// \brief Return an instance of the user defined custom class
+  /// \param[in] builder The current instance of derivative builder 
+  std::unique_ptr<EstimationModel> InstantiateCustomModel(DerivativeBuilder& builder){
+    return std::unique_ptr<EstimationModel>(new CustomClass(builder));
+  }
 };
 
 /// Example class for taylor series approximation based error estimation
 class TaylorApprox : public EstimationModel{
 public:
+  TaylorApprox(DerivativeBuilder& builder) : EstimationModel(builder) {}
   // Return an expression of the following kind
-  //  dfdx * delta_x
-  clang::Expr *AssignError(StmtDiff refExpr, clang::Expr *errExpr = nullptr);
+  //  dfdx * delta_x * Em
+  clang::Expr *AssignError(StmtDiff refExpr);
 
   // For now, we can just return null
   clang::Expr *SetError(clang::VarDecl* decl);

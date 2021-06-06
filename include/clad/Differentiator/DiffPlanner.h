@@ -1,4 +1,3 @@
-#include "clad/Differentiator/EstimationModel.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 
 #include "llvm/ADT/SmallSet.h"
@@ -16,6 +15,7 @@ namespace clang {
   } // namespace clang
 
 namespace clad {
+  class EstimationModel;
 
   enum class DiffMode {
     unknown = 0,

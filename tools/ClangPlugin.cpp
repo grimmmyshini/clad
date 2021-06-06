@@ -156,7 +156,10 @@ namespace clad {
         for (auto it = ErrorEstimationModelRegistry::begin(),
                   ie = ErrorEstimationModelRegistry::end();
              it != ie; ++it) {
-          request.CustomModel = it->instantiate().release();
+          auto estimationPlugin = it->instantiate();
+          request.CustomModel =
+              estimationPlugin->InstantiateCustomModel(*m_DerivativeBuilder)
+                  .release();
         }
       }
       FunctionDecl* DerivativeDecl = nullptr;

@@ -31,24 +31,25 @@ namespace clang {
 
 namespace clad {
   struct DiffRequest;
+  class EstimationPlugin;
   namespace plugin {
-    /// Register any custom error estimation model a user provides   
-    using ErrorEstimationModelRegistry = llvm::Registry<EstimationModel>;
-    struct DifferentiationOptions {
-      DifferentiationOptions()
+  /// Register any custom error estimation model a user provides
+  using ErrorEstimationModelRegistry = llvm::Registry<EstimationPlugin>;
+  struct DifferentiationOptions {
+    DifferentiationOptions()
         : DumpSourceFn(false), DumpSourceFnAST(false), DumpDerivedFn(false),
           DumpDerivedAST(false), GenerateSourceFile(false),
           ValidateClangVersion(false), CustomEstimationModel(false),
-          CustomModel("") { }
+          CustomModel("") {}
 
-      bool DumpSourceFn : 1;
-      bool DumpSourceFnAST : 1;
-      bool DumpDerivedFn : 1;
-      bool DumpDerivedAST : 1;
-      bool GenerateSourceFile : 1;
-      bool ValidateClangVersion : 1;
-      bool CustomEstimationModel : 1;
-      std::string CustomModel;
+    bool DumpSourceFn : 1;
+    bool DumpSourceFnAST : 1;
+    bool DumpDerivedFn : 1;
+    bool DumpDerivedAST : 1;
+    bool GenerateSourceFile : 1;
+    bool ValidateClangVersion : 1;
+    bool CustomEstimationModel : 1;
+    std::string CustomModel;
     };
 
     class CladPlugin : public clang::ASTConsumer {

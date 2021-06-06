@@ -977,12 +977,24 @@ namespace clad {
     return Call;
   }
 
+  Expr* ReverseModeVisitor::PushDiffArgs(Expr* tapeRef, Expr* arg) {
+    LookupResult& Push = GetCladTapePush();
+    CXXScopeSpec CSS;
+    CSS.Extend(m_Context, GetCladNamespace(), noLoc, noLoc);
+    auto PushDRE = m_Sema.BuildDeclarationNameExpr(CSS, Push, /*ADL*/ false).get();
+    Expr* CallArgs[] = { tapeRef, arg };
+    Expr* PushExpr = m_Sema.ActOnCallExpr(getCurrentScope(), PushDRE, noLoc,
+                                          CallArgs, noLoc).get();
+    return PushExpr;
+  }
+
   ReverseModeVisitor::CladTapeResult ReverseModeVisitor::MakeCladTapeFor(Expr* E) {
-    assert(E && "must be provided");
+    assert((E || m_EstimationInFlight) && "must be provided");
     QualType TapeType = GetCladTapeOfType(E->getType());
     LookupResult& Push = GetCladTapePush();
     LookupResult& Pop = GetCladTapePop();
-    Expr* TapeRef = BuildDeclRef(GlobalStoreImpl(TapeType, "_t"));
+    llvm::StringRef prefix = m_EstimationInFlight ? "_EERepl_" + dyn_cast<DeclRefExpr>(E)->getDecl()->getNameAsString(): "_t";
+    Expr* TapeRef = BuildDeclRef(GlobalStoreImpl(TapeType, prefix));
     auto VD = cast<VarDecl>(cast<DeclRefExpr>(TapeRef)->getDecl());
     // Add fake location, since Clang AST does assert(Loc.isValid()) somewhere.
     VD->setLocation(m_Function->getLocation());
@@ -2041,6 +2053,10 @@ namespace clad {
     for (Stmt* S : CS->body()) {
       StmtDiff SDiff = DifferentiateSingleStmt(S);
       addToCurrentBlock(SDiff.getStmt(), forward);
+      if  (m_EstimationInFlight && errorEstHandler->m_pushExpr){
+        addToCurrentBlock(errorEstHandler->m_pushExpr, forward);
+        errorEstHandler->m_pushExpr = nullptr;
+      }
       addToCurrentBlock(SDiff.getStmt_dx(), reverse);
     }
     CompoundStmt* Forward = endBlock(forward);
@@ -2557,14 +2573,12 @@ namespace clad {
               deltaVar = BuildDeclRef(regVar);
               // Add the _delta_* decl to the global variables
               addToBlock(BuildDeclStmt(regVar), m_Globals);
-              // Get a replacement
-              if(!errorEstHandler->m_DoNotEmitRepl)
-                addToBlock(
-                    errorEstHandler->UpdateReplacement(decl, BuildDeclRef(decl)),
-                    m_Globals);
-              else
-                errorEstHandler->m_DoNotEmitRepl = false; 
-                
+              auto tape = MakeCladTapeFor(BuildDeclRef(decl));
+              auto topExpr = tape.Last();
+              errorEstHandler->m_ReplaceEstVar[decl] =
+                  ErrorEstimationHandler::TapeInfo(tape.Push, tape.Pop,
+                                                   topExpr, tape.Ref);
+              addToBlock(tape.Push, m_Globals);
             }
           }
           // If this is a ref to LHS of assignment operator, do not assign
@@ -2578,7 +2592,7 @@ namespace clad {
               auto replacedExpr = errorEstHandler->GetReplacement(decl);
               // then assign error as usual
               auto errorExpr = errorEstHandler->m_EstModel->AssignError(
-                  StmtDiff(replacedExpr, it->second));
+                  StmtDiff(replacedExpr.top, it->second));
               addToCurrentBlock(BuildOp(BO_AddAssign, deltaVar, errorExpr),
                                 reverse);
             } 
@@ -2782,6 +2796,7 @@ namespace clad {
   StmtDiff ReverseModeVisitor::VisitUnaryOperator(const UnaryOperator* UnOp) {
     auto opCode  = UnOp->getOpcode();
     StmtDiff diff{};
+    Expr* newPushCall = nullptr;
     // If it is a post-increment/decrement operator, its result is a reference and
     // we should return it.
     Expr* ResultRef = nullptr;
@@ -2798,51 +2813,30 @@ namespace clad {
       diff = Visit(UnOp->getSubExpr(), d);
     }
     else if (opCode == UO_PostInc || opCode == UO_PostDec) {
-      diff = Visit(UnOp->getSubExpr(), dfdx());
-      // TODO: only do this for registered vars
-      if(m_EstimationInFlight){
-        // For post decrement, we should only update after we have 
-        // visited the underlying expression
-        if(auto declRef = dyn_cast<DeclRefExpr>(Clone(UnOp->getSubExpr()))){
+      if (m_EstimationInFlight) {
+        auto declRef = dyn_cast<DeclRefExpr>(Clone(UnOp->getSubExpr()));
+        if (declRef && errorEstHandler->m_EstModel->IsVariableRegistered(dyn_cast<VarDecl>(declRef->getDecl()))) {
           auto decl = dyn_cast<VarDecl>(declRef->getDecl());
-          // Create a new replacement
-          addToBlock(errorEstHandler->UpdateReplacement(decl),
-                     m_Globals);
-          auto replDeclRef =
-              errorEstHandler->GetReplacement(decl);
-          // First create _r_x_* = x;
-          auto assignExpr = BuildOp(BO_Assign, replDeclRef, diff.getExpr());
-          // Add to current block
-          addToCurrentBlock(assignExpr);
-          // Then create the orignal operation expr with the reploaced decl and
-          // add to current block. Any calls to getReplacement will hereafter
-          // reflect the change;
-          addToCurrentBlock(BuildOp(opCode, replDeclRef));
+          auto replacedRef = errorEstHandler->GetReplacement(decl);
+          newPushCall = PushDiffArgs(replacedRef.tapeRef, Clone(UnOp));
+          addToCurrentBlock(replacedRef.pop, reverse);
         }
       }
+      diff = Visit(UnOp->getSubExpr(), dfdx());
       ResultRef = diff.getExpr_dx();
     }
     else if (opCode == UO_PreInc || opCode == UO_PreDec) {
+      diff = Visit(UnOp->getSubExpr(), dfdx());
       if(m_EstimationInFlight){
-        if(auto declRef = dyn_cast<DeclRefExpr>(Clone(UnOp->getSubExpr()))){
+        auto declRef = dyn_cast<DeclRefExpr>(diff.getExpr());
+        if (declRef && errorEstHandler->m_EstModel->IsVariableRegistered(dyn_cast<VarDecl>(declRef->getDecl()))) {
           auto decl = dyn_cast<VarDecl>(declRef->getDecl());
-          errorEstHandler->m_DoNotEmitRepl = true;
-          // Create a new replacement
-          addToBlock(errorEstHandler->UpdateReplacement(decl),
-                     m_Globals);
-          auto replDeclRef =
-              errorEstHandler->GetReplacement(decl);
-          // First create _r_x_* = x;
-          auto assignExpr = BuildOp(BO_Assign, replDeclRef, declRef);
-          // Add to current block
-          addToCurrentBlock(assignExpr);
-          // Then create a _r_x_*++ operation and add to current block
-          addToCurrentBlock(BuildOp(opCode, replDeclRef));
+          auto replacedRef = errorEstHandler->GetReplacement(decl);
+          newPushCall = PushDiffArgs(replacedRef.tapeRef, Clone(UnOp));
+          addToCurrentBlock(replacedRef.pop, reverse);
         }
       }
-      diff = Visit(UnOp->getSubExpr(), dfdx());
-    }
-    else {
+    } else {
       // We should not output any warning on visiting boolean conditions
       // FIXME: We should support boolean differentiation or ignore it completely
       if(opCode != UO_LNot)
@@ -2855,6 +2849,8 @@ namespace clad {
          diff = StmtDiff(subExpr);
     }
     Expr* op = BuildOp(opCode, diff.getExpr());
+    if(newPushCall)
+        op = newPushCall;
     return StmtDiff(op, ResultRef);
   }
 
@@ -2864,7 +2860,6 @@ namespace clad {
     StmtDiff Rdiff{};
     auto L = BinOp->getLHS();
     auto R = BinOp->getRHS();
-    Expr*  loopReplExpr = nullptr;
     // If it is an assignment operator, its result is a reference to LHS and
     // we should return it.
     Expr* ResultRef = nullptr;
@@ -2973,7 +2968,7 @@ namespace clad {
 
         return BuildOp(opCode, LExpr, RExpr);
       }
-
+      
       if (auto ASE = dyn_cast<ArraySubscriptExpr>(L)) {
         auto DRE = dyn_cast<DeclRefExpr>(ASE->getBase()->IgnoreImplicit());
         QualType type = DRE->getType()->getPointeeType();
@@ -3019,9 +3014,9 @@ namespace clad {
       // LHS of assignment ops
       if (m_EstimationInFlight)
         errorEstHandler->m_DoNotEmitDelta = true;
+      
       Ldiff = Visit(L, dfdx());
       auto Lblock = endBlock(reverse);
-      Expr* LCloned = Ldiff.getExpr();
       // For x, AssignedDiff is _d_x, for x[i] its _d_x[i], for reference exprs
       // like (x = y) it propagates recursively, so _d_x is also returned.
       Expr* AssignedDiff = Ldiff.getExpr_dx();
@@ -3043,6 +3038,18 @@ namespace clad {
       // If assigned expr is dependent, first update its derivative;
       auto Lblock_begin = Lblock->body_rbegin();
       auto Lblock_end = Lblock->body_rend();
+      Expr* LCloned = Ldiff.getExpr();
+      auto LRef = dyn_cast<DeclRefExpr>(LCloned);
+      VarDecl* Ldecl = LRef ? dyn_cast<VarDecl>(LRef->getDecl()) : nullptr;
+      Expr* deltaVar = nullptr;
+      if(m_EstimationInFlight && Ldecl){
+        deltaVar =
+              errorEstHandler->m_EstModel->IsVariableRegistered(Ldecl);
+        if(deltaVar){
+          auto replacedExpr = errorEstHandler->GetReplacement(Ldecl);
+          addToCurrentBlock(replacedExpr.pop, reverse);
+        }
+      }
       if (dfdx() && Lblock->size()) {
         addToCurrentBlock(*Lblock_begin, reverse);
         Lblock_begin = std::next(Lblock_begin);
@@ -3125,36 +3132,20 @@ namespace clad {
         llvm_unreachable("unknown assignment opCode");
       // For cases like x -= y, we also want to emit the delta of x since the
       // expression is equivalent to x = x - y.
-      if (m_EstimationInFlight) {
-        auto LRef = dyn_cast<DeclRefExpr>(Ldiff.getExpr());
-        if (LRef) {
-          auto Ldecl = dyn_cast<VarDecl>(LRef->getDecl());
-          auto deltaVar =
-              errorEstHandler->m_EstModel->IsVariableRegistered(Ldecl);
-          if (deltaVar) {
-            // first check if the current var has a replacement
-            auto replacedExpr = errorEstHandler->GetReplacement(Ldecl);
-            // only emitt the error for compound assignments
-            if (opCode != BO_Assign) {
-              auto errorExpr = errorEstHandler->m_EstModel->AssignError(
-                  StmtDiff(replacedExpr, Ldiff.getExpr_dx()));
-
-              addToCurrentBlock(BuildOp(BO_AddAssign, deltaVar, errorExpr),
-                                reverse);
-            }
-            // update and emit the new replacement anyway as long as the
-            // variable is registered
-            auto replDecl = errorEstHandler->UpdateReplacement(Ldecl);
-            auto replDeclRef = errorEstHandler->GetReplacement(Ldecl);
-            addToBlock(replDecl, m_Globals);
-            addToCurrentBlock(BuildOp(BO_Assign,
-                                      replDeclRef,
-                                      Rdiff.getExpr()),
-                              forward);
-            // Update Rdiff
-            Rdiff = StmtDiff(replDeclRef, Rdiff.getStmt_dx());
-          }
+      if (m_EstimationInFlight && deltaVar) {
+        // first check if the current var has a replacement
+        auto replacedExpr = errorEstHandler->GetReplacement(Ldecl);
+        // only emitt the error for compound assignments
+        if (opCode != BO_Assign) {
+          auto errorExpr = errorEstHandler->m_EstModel->AssignError(
+              StmtDiff(replacedExpr.top, Ldiff.getExpr_dx()));
+          addToCurrentBlock(BuildOp(BO_AddAssign, deltaVar, errorExpr),
+                            reverse);
         }
+        // update and emit the new replacement anyway as long as the
+        // variable is registered
+        errorEstHandler->m_pushExpr =
+            errorEstHandler->m_ReplaceEstVar[Ldecl].push;
       }
       // Update the derivative.
       addToCurrentBlock(BuildOp(BO_SubAssign, AssignedDiff, oldValue), reverse);
@@ -3205,15 +3196,13 @@ namespace clad {
       // If it is non-floating point type, we could not care less about it
       // in that case, do nothing
       if (auto EstVD = errorEstHandler->RegisterVariable(VDClone)) {
-        addToBlock(
-            errorEstHandler->UpdateReplacement(VDClone),
-            m_Globals);
-        auto replInit = errorEstHandler->GetReplacement(VDClone);
-        addToCurrentBlock(BuildOp(BO_Assign, replInit, initDiff.getExpr()));
+          auto tape = MakeCladTapeFor(BuildDeclRef(VDClone));
+          auto topExpr = tape.Last();
+          errorEstHandler->m_ReplaceEstVar[VDClone] =
+                  ErrorEstimationHandler::TapeInfo(tape.Push, tape.Pop,
+                                                   topExpr, tape.Ref);
+        errorEstHandler->m_pushExpr = tape.Push;
         addToBlock(BuildDeclStmt(EstVD), m_Globals);
-        // Update VDClone
-        if(initDiff.getExpr())
-          VDClone->setInit(replInit);
       }
     }
     m_Variables.emplace(VDClone, BuildDeclRef(VDDerived));
@@ -3237,6 +3226,10 @@ namespace clad {
     beginBlock(reverse);
     StmtDiff EDiff = Visit(E, dfdE);
     CompoundStmt* RCS = endBlock(reverse);
+    if(m_EstimationInFlight && errorEstHandler->m_pushExpr){
+      addToCurrentBlock(errorEstHandler->m_pushExpr, forward);
+      errorEstHandler->m_pushExpr = nullptr;
+    }
     Stmt* ForwardResult = endBlock(forward);
     std::reverse(RCS->body_begin(), RCS->body_end());
     Stmt* ReverseResult = unwrapIfSingleStmt(RCS);
