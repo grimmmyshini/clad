@@ -530,7 +530,7 @@ namespace clad {
     /// variable and replace E's further usage by a reference to that variable to 
     /// avoid recomputiation.
     bool UsefulToStoreGlobal(clang::Expr* E);
-    clang::VarDecl* GlobalStoreImpl(clang::QualType Type, llvm::StringRef prefix);
+    clang::VarDecl* GlobalStoreImpl(clang::QualType Type, llvm::StringRef prefix, clang::Expr* init = nullptr);
     /// Creates a (global in the function scope) variable declaration, puts
     /// it into m_Globals block (to be inserted into the beginning of fn's
     /// body). Returns reference R to the created declaration. If E is not null,

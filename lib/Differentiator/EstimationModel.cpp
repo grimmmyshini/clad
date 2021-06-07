@@ -18,25 +18,8 @@ Expr* EstimationModel::IsVariableRegistered(const VarDecl* VD) {
   return nullptr;
 }
 
-VarDecl* EstimationModel::AddVarToEstimate(VarDecl* VD) {
-  auto deltaExpr = IsVariableRegistered(VD);
-  if (!deltaExpr) {
-    // Get the initital error (if any)
-    auto initExpr = SetError(VD);
-    if (!initExpr)
-      initExpr = getZeroInit(m_Context.DoubleTy);
-    // If the varibale declaration is not registered, build another declaration
-    // of the same type with '_delta_' prefix
-    auto deltaDecl =
-        BuildVarDecl(m_Context.DoubleTy,
-                              "_delta_" + VD->getNameAsString(), initExpr);
-    // Add it to the map that tracks the variables and their errors
-    m_EstimateVar.emplace(VD, BuildDeclRef(deltaDecl));
-    return deltaDecl;
-  }
-  // If the varibale declaration was already registered, return the declaration
-  // of the error it maps to
-  return cast<VarDecl>(cast<DeclRefExpr>(deltaExpr)->getDecl());
+void EstimationModel::AddVarToEstimate(VarDecl* VD, Expr* VDRef) {
+    m_EstimateVar.emplace(VD, VDRef);
 }
 
 Expr* EstimationModel::CalculateAggregateError() {

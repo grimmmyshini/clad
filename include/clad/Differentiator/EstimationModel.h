@@ -31,7 +31,7 @@ public:
   /// \brief Track the variable declaration and utilize it in error estimation
   /// \param[in] VD The declaration to track
   /// \returns The variable declaration of the delta value
-  clang::VarDecl* AddVarToEstimate(clang::VarDecl* VD);
+  void AddVarToEstimate(clang::VarDecl* VD, clang::Expr* VDRef);
   /// \brief User overridden function to return the error expression of a
   /// specific estimation model. The error expression is returned in the form of
   /// a clang::Expr, the user may use BuildOp() to build the final expression.

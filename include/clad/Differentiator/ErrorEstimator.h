@@ -84,7 +84,7 @@ public:
   /// considered for the final estimation.
   /// \param[in] VD The variable declaration to be registered
   /// \returns The Variable declaration of the '_delta_' prefixed variable
-  clang::VarDecl* RegisterVariable(clang::VarDecl* VD);
+  bool RegisterVariable(clang::VarDecl* VD);
   /// \brief Calculate aggregate error from m_EstimateVar.
   /// Builds the final error estimation statement
   clang::Stmt* CalculateAggregateError();

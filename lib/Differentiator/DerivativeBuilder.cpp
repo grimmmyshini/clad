@@ -2566,13 +2566,16 @@ namespace clad {
           // (given they are the type we want to register) before they are
           // referenced.
           if (!deltaVar) {
-            auto regVar = errorEstHandler->RegisterVariable(decl);
             // In the case that the variable was not registered and should not
             // be registered, we should not care
-            if (regVar) {
+            if (errorEstHandler->RegisterVariable(decl)) {
+              auto init = errorEstHandler->m_EstModel->SetError(decl);
+              init = init ? init : getZeroInit(m_Context.DoubleTy);
+              auto regVar = GlobalStoreImpl(
+                  m_Context.DoubleTy, "_delta_" + decl->getNameAsString(), init);
               deltaVar = BuildDeclRef(regVar);
-              // Add the _delta_* decl to the global variables
-              addToBlock(BuildDeclStmt(regVar), m_Globals);
+              errorEstHandler->m_EstModel->AddVarToEstimate(decl, deltaVar);
+
               auto tape = MakeCladTapeFor(BuildDeclRef(decl));
               auto topExpr = tape.Last();
               errorEstHandler->m_ReplaceEstVar[decl] =
@@ -3195,14 +3198,17 @@ namespace clad {
     if (m_EstimationInFlight) {
       // If it is non-floating point type, we could not care less about it
       // in that case, do nothing
-      if (auto EstVD = errorEstHandler->RegisterVariable(VDClone)) {
-          auto tape = MakeCladTapeFor(BuildDeclRef(VDClone));
-          auto topExpr = tape.Last();
-          errorEstHandler->m_ReplaceEstVar[VDClone] =
-                  ErrorEstimationHandler::TapeInfo(tape.Push, tape.Pop,
-                                                   topExpr, tape.Ref);
+      if (errorEstHandler->RegisterVariable(VDClone)) {
+        auto init = errorEstHandler->m_EstModel->SetError(VDClone);
+        init = init ? init : getZeroInit(m_Context.DoubleTy);
+        auto EstVD = GlobalStoreImpl(m_Context.DoubleTy, "_delta_" + VDClone->getNameAsString(), init);
+        errorEstHandler->m_EstModel->AddVarToEstimate(VDClone, BuildDeclRef(EstVD));
+        auto tape = MakeCladTapeFor(BuildDeclRef(VDClone));
+        auto topExpr = tape.Last();
+        errorEstHandler->m_ReplaceEstVar[VDClone] =
+                ErrorEstimationHandler::TapeInfo(tape.Push, tape.Pop,
+                                                 topExpr, tape.Ref);
         errorEstHandler->m_pushExpr = tape.Push;
-        addToBlock(BuildDeclStmt(EstVD), m_Globals);
       }
     }
     m_Variables.emplace(VDClone, BuildDeclRef(VDDerived));
@@ -3319,7 +3325,7 @@ namespace clad {
   }
 
   VarDecl* ReverseModeVisitor::GlobalStoreImpl(QualType Type,
-                                            llvm::StringRef prefix) {
+                                            llvm::StringRef prefix, Expr* init) {
     // Create identifier before going to topmost scope
     // to let Sema::LookupName see the whole scope.
     auto identifier = CreateUniqueIdentifier(prefix);
@@ -3328,7 +3334,7 @@ namespace clad {
     assert(m_DerivativeFnScope && "must be set");
     m_CurScope = m_DerivativeFnScope;
 
-    VarDecl* Var = BuildVarDecl(Type, identifier);
+    VarDecl* Var = BuildVarDecl(Type, identifier, init);
 
     // Add the declaration to the body of the gradient function.
     addToBlock(BuildDeclStmt(Var), m_Globals);

@@ -29,7 +29,7 @@ DeclWithContext ErrorEstimationHandler::Calculate(const clang::FunctionDecl* FD,
 }
 
 // FIXME: There is probably more to this...
-VarDecl* ErrorEstimationHandler::RegisterVariable(VarDecl* VD) {
+bool ErrorEstimationHandler::RegisterVariable(VarDecl* VD) {
   // Get the types on the declartion and initalization expression
   QualType varDeclType = VD->getType();
   const Expr* init = VD->getInit();
@@ -49,7 +49,7 @@ VarDecl* ErrorEstimationHandler::RegisterVariable(VarDecl* VD) {
                    {init->IgnoreImpCasts()->getType().getAsString(),
                     VD->getType().getAsString()});
     // Secondly, we want to only register floating-point types
-    return nullptr;
+    return false;
   }
   // Next, we want to check if there is an assignment that leads to truncation
   // For example, something like so
@@ -60,7 +60,7 @@ VarDecl* ErrorEstimationHandler::RegisterVariable(VarDecl* VD) {
   // FIXME: figure how to do this out elegantly
 
   // Now, we can register the variable
-  return m_EstModel->AddVarToEstimate(VD);
+  return true;
 }
 
 ErrorEstimationHandler::TapeInfo ErrorEstimationHandler::GetReplacement(VarDecl* VD){
