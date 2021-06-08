@@ -3193,24 +3193,6 @@ namespace clad {
                           StmtDiff{};
     VarDecl* VDClone = BuildVarDecl(VD->getType(),VD->getNameAsString(),
                                     initDiff.getExpr(), VD->isDirectInit());
-    // If error estimation is in flight, register the VarDecl 
-    // and emit it to the Global stmts to be initialized at the start
-    if (m_EstimationInFlight) {
-      // If it is non-floating point type, we could not care less about it
-      // in that case, do nothing
-      if (errorEstHandler->RegisterVariable(VDClone)) {
-        auto init = errorEstHandler->m_EstModel->SetError(VDClone);
-        init = init ? init : getZeroInit(m_Context.DoubleTy);
-        auto EstVD = GlobalStoreImpl(m_Context.DoubleTy, "_delta_" + VDClone->getNameAsString(), init);
-        errorEstHandler->m_EstModel->AddVarToEstimate(VDClone, BuildDeclRef(EstVD));
-        auto tape = MakeCladTapeFor(BuildDeclRef(VDClone));
-        auto topExpr = tape.Last();
-        errorEstHandler->m_ReplaceEstVar[VDClone] =
-                ErrorEstimationHandler::TapeInfo(tape.Push, tape.Pop,
-                                                 topExpr, tape.Ref);
-        errorEstHandler->m_pushExpr = tape.Push;
-      }
-    }
     m_Variables.emplace(VDClone, BuildDeclRef(VDDerived));
     return VarDeclDiff(VDClone, VDDerived);
   }
@@ -3252,7 +3234,36 @@ namespace clad {
     // double _d_y = _d_x; double y = x;
     for (auto D : DS->decls()) {
       if (auto VD = dyn_cast<VarDecl>(D)) {
-        VarDeclDiff VDDiff = DifferentiateVarDecl(VD);
+        VarDeclDiff VDDiff;
+        // Hacky way to generate pop function for decls
+        // FIXME: Can split MakeCladTape into making of each expression
+        // like how we do with Last()
+        if (m_EstimationInFlight && errorEstHandler->RegisterVariable(VD)) {
+          // Clone the decl and build a placebo tape
+          // since tape reference/pop expression is independent of input expression
+          // we can safely use it to recreate the expression later
+          auto tape = MakeCladTapeFor(BuildDeclRef(BuildVarDecl(
+              VD->getType(), VD->getNameAsString(), Clone(VD->getInit()), VD->isDirectInit())));
+          
+          if (isInsideLoop)
+            addToCurrentBlock(tape.Pop, reverse);
+        
+          VDDiff = DifferentiateVarDecl(VD);
+
+          auto init = errorEstHandler->m_EstModel->SetError(VDDiff.getDecl());
+          init = init ? init : getZeroInit(m_Context.DoubleTy);
+          auto EstVD = GlobalStoreImpl(m_Context.DoubleTy, "_delta_" + VDDiff.getDecl()->getNameAsString(), init);
+          errorEstHandler->m_EstModel->AddVarToEstimate(VDDiff.getDecl(), BuildDeclRef(EstVD));
+
+          // Rebuild the push expression
+          tape.Push = PushDiffArgs(tape.Ref, BuildDeclRef(VDDiff.getDecl()));
+          errorEstHandler->m_pushExpr = tape.Push;
+          // Finally register tape expression
+          errorEstHandler->m_ReplaceEstVar[VDDiff.getDecl()] =
+                  ErrorEstimationHandler::TapeInfo(tape.Push, tape.Pop,
+                                                   tape.Last(), tape.Ref);
+        } else
+          VDDiff = DifferentiateVarDecl(VD);
         // Check if decl's name is the same as before. The name may be changed
         // if decl name collides with something in the derivative body.
         // This can happen in rare cases, e.g. when the original function
