@@ -31,8 +31,10 @@ DeclWithContext ErrorEstimationHandler::Calculate(const clang::FunctionDecl* FD,
 // FIXME: There is probably more to this...
 bool ErrorEstimationHandler::RegisterVariable(VarDecl* VD) {
   // Get the types on the declartion and initalization expression
-  QualType varDeclType = VD->getType();
-  const Expr* init = VD->getInit();
+  const Type* varDeclType = VD->getType()->isArrayType()
+                             ? VD->getType()->getArrayElementTypeNoTypeQual()
+                             : VD->getType().getTypePtr();
+  const Expr *init = VD->getInit();
   // If declarationg type in not floating point type, we want to do two things
   if (!varDeclType->isFloatingType()) {
     // Firstly, we want to check if the declaration is a lossy conversion

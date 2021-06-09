@@ -89,8 +89,7 @@ namespace clad {
       result = J.Derive(FD, request);
     } else if (request.Mode == DiffMode::error_estimation) {
       // Set the handler and call calculate to begin estimation
-      if (!errorEstHandler)
-        errorEstHandler.reset(new ErrorEstimationHandler(*this));
+      errorEstHandler.reset(new ErrorEstimationHandler(*this));
       result = errorEstHandler->Calculate(FD, request);
     }
 
@@ -988,12 +987,12 @@ namespace clad {
     return PushExpr;
   }
 
-  ReverseModeVisitor::CladTapeResult ReverseModeVisitor::MakeCladTapeFor(Expr* E) {
-    assert((E || m_EstimationInFlight) && "must be provided");
+  ReverseModeVisitor::CladTapeResult ReverseModeVisitor::MakeCladTapeFor(Expr* E, bool forEst) {
+    assert(E && "must be provided");
     QualType TapeType = GetCladTapeOfType(E->getType());
     LookupResult& Push = GetCladTapePush();
     LookupResult& Pop = GetCladTapePop();
-    llvm::StringRef prefix = m_EstimationInFlight ? "_EERepl_" + dyn_cast<DeclRefExpr>(E)->getDecl()->getNameAsString(): "_t";
+    llvm::StringRef prefix = forEst ? "_EERepl_" + dyn_cast<DeclRefExpr>(E)->getDecl()->getNameAsString(): "_t";
     Expr* TapeRef = BuildDeclRef(GlobalStoreImpl(TapeType, prefix));
     auto VD = cast<VarDecl>(cast<DeclRefExpr>(TapeRef)->getDecl());
     // Add fake location, since Clang AST does assert(Loc.isValid()) somewhere.
@@ -2017,16 +2016,29 @@ namespace clad {
     else
       addToCurrentBlock(Reverse, forward);
 
-    if (request.Mode == DiffMode::error_estimation) {
-      // Finally, add the final error accumulation stmt
-      if (auto addErrorExpr =
-              errorEstHandler->m_EstModel->CalculateAggregateError()) {
-        Expr* finalErr =
-            BuildOp(BO_Assign, errorEstHandler->m_FinalError,
-                    addErrorExpr);
-        addToCurrentBlock(finalErr, forward);
+  // Since 'return' is not an assignment, add its error to _final_error
+  // given it is not a DeclRefExpr
+  if(m_EstimationInFlight){
+      Expr *finExpr = nullptr;
+      if (errorEstHandler->m_RetErrorExpr) {
+        auto flitr = FloatingLiteral::Create(m_Context, llvm::APFloat(1.0),
+                                             true, m_Context.DoubleTy, noLoc);
+        finExpr  =
+            errorEstHandler->m_EstModel->AssignError(StmtDiff(errorEstHandler->m_RetErrorExpr, flitr));
       }
-    }
+
+      Expr *addErrorExpr =
+          errorEstHandler->m_EstModel->CalculateAggregateError();
+      if (addErrorExpr) {
+        if(finExpr)
+          addErrorExpr = BuildOp(BO_Add, addErrorExpr, finExpr);
+
+      } else if (finExpr) {
+        addErrorExpr = BuildOp(BO_Assign, errorEstHandler->m_FinalError, finExpr);
+      }
+      
+      addToCurrentBlock(BuildOp(BO_Assign, errorEstHandler->m_FinalError, addErrorExpr), forward);
+  }
 
     Stmt* gradientBody = endBlock();
     m_Derivative->setBody(gradientBody);
@@ -2053,11 +2065,11 @@ namespace clad {
     for (Stmt* S : CS->body()) {
       StmtDiff SDiff = DifferentiateSingleStmt(S);
       addToCurrentBlock(SDiff.getStmt(), forward);
-      if  (m_EstimationInFlight && errorEstHandler->m_pushExpr){
+      addToCurrentBlock(SDiff.getStmt_dx(), reverse);
+      if  (m_EstimationInFlight){
         addToCurrentBlock(errorEstHandler->m_pushExpr, forward);
         errorEstHandler->m_pushExpr = nullptr;
       }
-      addToCurrentBlock(SDiff.getStmt_dx(), reverse);
     }
     CompoundStmt* Forward = endBlock(forward);
     CompoundStmt* Reverse = endBlock(reverse);
@@ -2446,8 +2458,19 @@ namespace clad {
       addToCurrentBlock(S, forward);
     // Since returned expression may have some side effects affecting reverse
     // computation (e.g. assignments), we also have to emit it to execute it.
-    StoreAndRef(ExprDiff.getExpr(), forward,
-                m_Function->getNameAsString() + "_return", /*force*/ true);
+    auto retExpr =
+        StoreAndRef(ExprDiff.getExpr(), forward,
+                    m_Function->getNameAsString() + "_return", /*force*/ true);
+    if (m_EstimationInFlight && !dyn_cast<DeclRefExpr>(ExprDiff.getExpr()) &&
+        retExpr->getType()->isFloatingType()) {
+      if(!errorEstHandler->m_RetErrorExpr){
+        auto retVarDecl = BuildVarDecl(m_Context.DoubleTy, "_ret_value",
+                                       getZeroInit(m_Context.DoubleTy));
+        addToBlock(BuildDeclStmt(retVarDecl), m_Globals);
+        errorEstHandler->m_RetErrorExpr = BuildDeclRef(retVarDecl);
+      }
+      addToCurrentBlock(BuildOp(BO_Assign, errorEstHandler->m_RetErrorExpr, retExpr), forward);
+    }
     // Create goto to the label.
     return m_Sema.ActOnGotoStmt(noLoc, noLoc, LD).get();
   }
@@ -2555,52 +2578,6 @@ namespace clad {
           auto add_assign = BuildOp(BO_AddAssign, it->second, dfdx());
           // Add it to the body statements.
           addToCurrentBlock(add_assign, reverse);
-        }
-        if (m_EstimationInFlight) {
-          auto deltaVar =
-              errorEstHandler->m_EstModel->IsVariableRegistered(
-                  decl);
-          // If a variable not registered before and we are visiting it
-          // It is most likely it is an independent variable since all
-          // variable declarations in the body of a function are registered
-          // (given they are the type we want to register) before they are
-          // referenced.
-          if (!deltaVar) {
-            // In the case that the variable was not registered and should not
-            // be registered, we should not care
-            if (errorEstHandler->RegisterVariable(decl)) {
-              auto init = errorEstHandler->m_EstModel->SetError(decl);
-              init = init ? init : getZeroInit(m_Context.DoubleTy);
-              auto regVar = GlobalStoreImpl(
-                  m_Context.DoubleTy, "_delta_" + decl->getNameAsString(), init);
-              deltaVar = BuildDeclRef(regVar);
-              errorEstHandler->m_EstModel->AddVarToEstimate(decl, deltaVar);
-
-              auto tape = MakeCladTapeFor(BuildDeclRef(decl));
-              auto topExpr = tape.Last();
-              errorEstHandler->m_ReplaceEstVar[decl] =
-                  ErrorEstimationHandler::TapeInfo(tape.Push, tape.Pop,
-                                                   topExpr, tape.Ref);
-              addToBlock(tape.Push, m_Globals);
-            }
-          }
-          // If this is a ref to LHS of assignment operator, do not assign
-          // an error, otherwise, go ahead.
-          if (!errorEstHandler->m_DoNotEmitDelta) {
-            // If we have a delta decl now, the variable should be assigned an
-            // error. Call assign error and do the needful. After getting the
-            // error, simply add it to the reverse block
-            if (deltaVar) {
-              // first check if the current var has a replacement
-              auto replacedExpr = errorEstHandler->GetReplacement(decl);
-              // then assign error as usual
-              auto errorExpr = errorEstHandler->m_EstModel->AssignError(
-                  StmtDiff(replacedExpr.top, it->second));
-              addToCurrentBlock(BuildOp(BO_AddAssign, deltaVar, errorExpr),
-                                reverse);
-            } 
-          } else
-            errorEstHandler->m_DoNotEmitDelta = false;
         }
         return StmtDiff(clonedDRE, it->second);
       }
@@ -3013,10 +2990,6 @@ namespace clad {
       // Visit LHS, but delay emission of its derivative statements, save them
       // in Lblock
       beginBlock(reverse);
-      // If in error estimation, we do not want to emit the delta statement for
-      // LHS of assignment ops
-      if (m_EstimationInFlight)
-        errorEstHandler->m_DoNotEmitDelta = true;
       
       Ldiff = Visit(L, dfdx());
       auto Lblock = endBlock(reverse);
@@ -3042,15 +3015,32 @@ namespace clad {
       auto Lblock_begin = Lblock->body_rbegin();
       auto Lblock_end = Lblock->body_rend();
       Expr* LCloned = Ldiff.getExpr();
+      LCloned = dyn_cast<ArraySubscriptExpr>(LCloned);
+      LCloned = LCloned ? LCloned : Ldiff.getExpr();
       auto LRef = dyn_cast<DeclRefExpr>(LCloned);
       VarDecl* Ldecl = LRef ? dyn_cast<VarDecl>(LRef->getDecl()) : nullptr;
       Expr* deltaVar = nullptr;
       if(m_EstimationInFlight && Ldecl){
         deltaVar =
               errorEstHandler->m_EstModel->IsVariableRegistered(Ldecl);
-        if(deltaVar){
-          auto replacedExpr = errorEstHandler->GetReplacement(Ldecl);
-          addToCurrentBlock(replacedExpr.pop, reverse);
+        if (!deltaVar) {
+            // In the case that the variable was not registered and should not
+            // be registered, we should not care
+            if (errorEstHandler->RegisterVariable(Ldecl)) {
+              auto init = errorEstHandler->m_EstModel->SetError(Ldecl);
+              init = init ? init : getZeroInit(m_Context.DoubleTy);
+              auto regVar = GlobalStoreImpl(
+                  m_Context.DoubleTy, "_delta_" + Ldecl->getNameAsString(), init);
+              deltaVar = BuildDeclRef(regVar);
+              errorEstHandler->m_EstModel->AddVarToEstimate(Ldecl, deltaVar);
+
+              auto tape = MakeCladTapeFor(BuildDeclRef(Ldecl), true);
+              auto topExpr = tape.Last();
+              errorEstHandler->m_ReplaceEstVar[Ldecl] =
+                  ErrorEstimationHandler::TapeInfo(tape.Push, tape.Pop,
+                                                   topExpr, tape.Ref);
+              addToBlock(tape.Push, m_Globals);
+            }
         }
       }
       if (dfdx() && Lblock->size()) {
@@ -3138,13 +3128,11 @@ namespace clad {
       if (m_EstimationInFlight && deltaVar) {
         // first check if the current var has a replacement
         auto replacedExpr = errorEstHandler->GetReplacement(Ldecl);
-        // only emitt the error for compound assignments
-        if (opCode != BO_Assign) {
-          auto errorExpr = errorEstHandler->m_EstModel->AssignError(
-              StmtDiff(replacedExpr.top, Ldiff.getExpr_dx()));
-          addToCurrentBlock(BuildOp(BO_AddAssign, deltaVar, errorExpr),
+        auto errorExpr = errorEstHandler->m_EstModel->AssignError(
+            StmtDiff(replacedExpr.top, oldValue));
+        addToCurrentBlock(BuildOp(BO_AddAssign, deltaVar, errorExpr),
                             reverse);
-        }
+        addToCurrentBlock(replacedExpr.pop, reverse);
         // update and emit the new replacement anyway as long as the
         // variable is registered
         errorEstHandler->m_pushExpr =
@@ -3234,36 +3222,42 @@ namespace clad {
     // double _d_y = _d_x; double y = x;
     for (auto D : DS->decls()) {
       if (auto VD = dyn_cast<VarDecl>(D)) {
-        VarDeclDiff VDDiff;
-        // Hacky way to generate pop function for decls
-        // FIXME: Can split MakeCladTape into making of each expression
-        // like how we do with Last()
-        if (m_EstimationInFlight && errorEstHandler->RegisterVariable(VD)) {
-          // Clone the decl and build a placebo tape
-          // since tape reference/pop expression is independent of input expression
-          // we can safely use it to recreate the expression later
-          auto tape = MakeCladTapeFor(BuildDeclRef(BuildVarDecl(
-              VD->getType(), VD->getNameAsString(), Clone(VD->getInit()), VD->isDirectInit())));
-          
-          if (isInsideLoop)
-            addToCurrentBlock(tape.Pop, reverse);
-        
-          VDDiff = DifferentiateVarDecl(VD);
+        VarDeclDiff VDDiff = DifferentiateVarDecl(VD);
 
-          auto init = errorEstHandler->m_EstModel->SetError(VDDiff.getDecl());
-          init = init ? init : getZeroInit(m_Context.DoubleTy);
-          auto EstVD = GlobalStoreImpl(m_Context.DoubleTy, "_delta_" + VDDiff.getDecl()->getNameAsString(), init);
+        if (m_EstimationInFlight && errorEstHandler->RegisterVariable(VD)) {
+          Expr* init = errorEstHandler->m_EstModel->SetError(VDDiff.getDecl());
+          auto QType =
+              VD->getType()->isArrayType() ? VD->getType() : m_Context.DoubleTy;
+          init = init ? init : getZeroInit(QType);
+          auto EstVD = GlobalStoreImpl(
+              QType,
+              "_delta_" + VDDiff.getDecl()->getNameAsString(), init);
           errorEstHandler->m_EstModel->AddVarToEstimate(VDDiff.getDecl(), BuildDeclRef(EstVD));
 
-          // Rebuild the push expression
-          tape.Push = PushDiffArgs(tape.Ref, BuildDeclRef(VDDiff.getDecl()));
-          errorEstHandler->m_pushExpr = tape.Push;
-          // Finally register tape expression
-          errorEstHandler->m_ReplaceEstVar[VDDiff.getDecl()] =
-                  ErrorEstimationHandler::TapeInfo(tape.Push, tape.Pop,
-                                                   tape.Last(), tape.Ref);
-        } else
-          VDDiff = DifferentiateVarDecl(VD);
+          // If Array type, delay building the tape
+          if(!VD->getType()->isArrayType()) {
+            auto tape = MakeCladTapeFor(BuildDeclRef(VDDiff.getDecl()), true);
+            errorEstHandler->m_pushExpr = tape.Push;
+            Expr* tapeLast = tape.Last();
+            // If VDDiff has an init, assign error and put in reverse
+            if (VDDiff.getDecl_dx()->getInit()) {
+              Expr* errorExpr = errorEstHandler->m_EstModel->AssignError(
+                  StmtDiff(tapeLast, BuildDeclRef(VDDiff.getDecl_dx())));
+              addToCurrentBlock(
+                  BuildOp(BO_AddAssign, BuildDeclRef(EstVD), errorExpr),
+                  reverse);
+            }
+
+            if (isInsideLoop || VDDiff.getDecl_dx()->getInit())
+              addToCurrentBlock(tape.Pop, reverse);
+            errorEstHandler->m_ReplaceEstVar[VDDiff.getDecl()] =
+                ErrorEstimationHandler::TapeInfo(tape.Push, tape.Pop, tapeLast,
+                                                 tape.Ref);
+          } else {
+            // For array types, build temporary tapes only 
+
+          }
+        }
         // Check if decl's name is the same as before. The name may be changed
         // if decl name collides with something in the derivative body.
         // This can happen in rare cases, e.g. when the original function

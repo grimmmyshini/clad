@@ -590,7 +590,7 @@ namespace clad {
     /// If E is supposed to be stored in a tape, will create a global declaration
     /// of tape of corresponding type and return a result struct with reference
     /// to the tape and constructed calls to push/pop methods.
-    CladTapeResult MakeCladTapeFor(clang::Expr*);
+    CladTapeResult MakeCladTapeFor(clang::Expr*, bool forEst = false);
 
   public:
     ReverseModeVisitor(DerivativeBuilder& builder);
@@ -644,11 +644,11 @@ namespace clad {
     /// Internally, calls Visit(S, expr). Its result is wrapped into a 
     /// CompoundStmt (if several statements are created) and proper Stmt
     /// order is maintained.
-    StmtDiff DifferentiateSingleStmt(const clang::Stmt* S,
-                                     clang::Expr* dfdS = nullptr);
+    StmtDiff DifferentiateSingleStmt(const clang::Stmt *S,
+                                     clang::Expr *dfdS = nullptr);
     /// A helper method used to keep substatements created by Visit(E, expr) in
     /// separate forward/reverse blocks instead of putting them into current
-    /// blocks. First result is a StmtDiff of forward/reverse blocks with 
+    /// blocks. First result is a StmtDiff of forward/reverse blocks with
     /// additionally created Stmts, second is a direct result of call to Visit.
     std::pair<StmtDiff, StmtDiff> 
     DifferentiateSingleExpr(const clang::Expr* E, clang::Expr* dfdE = nullptr);

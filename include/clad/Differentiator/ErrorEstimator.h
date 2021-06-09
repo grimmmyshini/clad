@@ -35,6 +35,8 @@ class ErrorEstimationHandler {
   clang::Expr* m_pushExpr = nullptr;
   /// Reference to the final error parameter in the augumented target function
   clang::Expr* m_FinalError;
+  /// Reference to the return error expression
+  clang::Expr* m_RetErrorExpr = nullptr;
   /// A reference to the builder instance so that we can call Derive
   DerivativeBuilder& m_builder;
   /// A instance of visitor base to utilize all functionalities from the same 
