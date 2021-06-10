@@ -580,13 +580,6 @@ namespace clad {
       /// demand in the method.
       clang::Expr* Last();
     };
-    /// \brief Build a new pop expression with a different argument
-    /// Similar to CladTapeResult::Last(), in error estimation mode, we sometimes need to 
-    /// emit the same clad::push(_t, ...) with different parameter expression
-    /// \param[in] tapeRef Reference to the tape for which we want to modify the push expression for
-    /// \param[in] arg The new arg to the push call expression
-    /// \returns A clang expression of the modified push call 
-    clang::Expr* PushDiffArgs(clang::Expr* tapeRef, clang::Expr* arg); 
     /// If E is supposed to be stored in a tape, will create a global declaration
     /// of tape of corresponding type and return a result struct with reference
     /// to the tape and constructed calls to push/pop methods.

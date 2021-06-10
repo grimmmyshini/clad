@@ -27,6 +27,12 @@ Expr* EstimationModel::CalculateAggregateError() {
   // Loop over all the error variables and form the final error expression of
   // the form... _final_error = _delta_var + _delta_var1 +...
   for (auto var : m_EstimateVar) {
+    // Errors through array subscript expressions are already captured
+    // to avoid having long add expression at the end and to only add
+    // the values to the final error that have a non zero delta
+    if(var.first->getType()->isArrayType())
+      continue;
+
     if (!addExpr) {
       addExpr = var.second;
       continue;

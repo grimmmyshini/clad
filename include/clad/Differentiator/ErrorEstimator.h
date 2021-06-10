@@ -44,27 +44,12 @@ class ErrorEstimationHandler {
   VisitorBase m_VBase;
   /// An instance of the custom error estimation model to be used
   EstimationModel* m_EstModel;
-  /// A struct to store push/pop/top expressions for a clad-type tape
-  struct TapeInfo
-  {
-    /// Store reference to the push() expression
-    clang::Expr* push;
-    /// Store reference to the pop() expression
-    clang::Expr* pop;
-    /// Store reference to the back()/top() expression
-    clang::Expr* top;
-    /// Store a reference to the tape instance being used
-    clang::Expr *tapeRef;
-
-    /// \brief Constructor for the struct
-    TapeInfo(clang::Expr* psh, clang::Expr* pp, clang::Expr* tp, clang::Expr* tref) : push(psh), pop(pp), top(tp), tapeRef(tref) {}
-    /// \brief Default constructor
-    TapeInfo() : push(nullptr), pop(nullptr), top(nullptr), tapeRef(nullptr) {}
-  };
+  /// A set of assignments resulting for declaration statments
+  VisitorBase::Stmts m_DeclErrStmt;
   /// Keeps track of the tape info for the estimation variables
   /// so that we can use the correct tape and value in the case of 
   /// re-assignments, loops etc. 
-  std::unordered_map<const clang::VarDecl*, TapeInfo> m_ReplaceEstVar;
+  /// std::unordered_map<const clang::VarDecl*, TapeInfo> m_ReplaceEstVar;
 
 public:
   ErrorEstimationHandler(DerivativeBuilder& builder)
@@ -93,7 +78,7 @@ public:
   /// \brief Get the tape info for an estimate variable
   /// \param[in] VD The variable declaration to get the replacement for
   /// \returns A set of tape push/pop/top expressions
-  TapeInfo GetReplacement(clang::VarDecl* VD);
+  // TapeInfo GetReplacement(clang::VarDecl* VD);
 
   friend class ReverseModeVisitor;
 };

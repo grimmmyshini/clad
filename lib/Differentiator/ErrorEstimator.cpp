@@ -64,11 +64,4 @@ bool ErrorEstimationHandler::RegisterVariable(VarDecl* VD) {
   // Now, we can register the variable
   return true;
 }
-
-ErrorEstimationHandler::TapeInfo ErrorEstimationHandler::GetReplacement(VarDecl* VD){
-  auto it = m_ReplaceEstVar.find(VD);
-  if(it != m_ReplaceEstVar.end())
-    return it->second;
-  return TapeInfo();
-}
 } // namespace clad
