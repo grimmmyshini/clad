@@ -46,10 +46,12 @@ class ErrorEstimationHandler {
   /// An instance of the custom error estimation model to be used
   EstimationModel* m_EstModel;
   /// A set of assignments resulting for declaration statments
-  VisitorBase::Stmts m_DeclErrStmt;
+  VisitorBase::Stmts m_ForwardReplStmts;
+  /// A vector to keep track of error statements for delayed emission
+  VisitorBase::Stmts m_ReverseErrorStmts;
   /// Keeps track of the tape info for the estimation variables
-  /// so that we can use the correct tape and value in the case of 
-  /// re-assignments, loops etc. 
+  /// so that we can use the correct tape and value in the case of
+  /// re-assignments, loops etc.
   /// std::unordered_map<const clang::VarDecl*, TapeInfo> m_ReplaceEstVar;
 
 public:

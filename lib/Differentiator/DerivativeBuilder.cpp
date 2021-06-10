@@ -2055,11 +2055,8 @@ namespace clad {
       StmtDiff SDiff = DifferentiateSingleStmt(S);
       addToCurrentBlock(SDiff.getStmt(), forward);
       if(m_EstimationInFlight){
-        while(!errorEstHandler->m_pushExpr.empty()){
-          addToCurrentBlock(errorEstHandler->m_pushExpr.pop_back_val(), forward);
-        }
-        while(!errorEstHandler->m_DeclErrStmt.empty()){
-        addToCurrentBlock(errorEstHandler->m_DeclErrStmt.pop_back_val(),
+        while(!errorEstHandler->m_ForwardReplStmts.empty()){
+        addToCurrentBlock(errorEstHandler->m_ForwardReplStmts.pop_back_val(),
                           forward);
         }
       }
@@ -2173,8 +2170,8 @@ namespace clad {
           StmtDiff BranchDiff = DifferentiateSingleStmt(Branch);
           addToCurrentBlock(BranchDiff.getStmt(), forward);
           if(m_EstimationInFlight){
-            while(!errorEstHandler->m_pushExpr.empty()){
-              addToCurrentBlock(errorEstHandler->m_pushExpr.pop_back_val());
+            while(!errorEstHandler->m_ForwardReplStmts.empty()){
+              addToCurrentBlock(errorEstHandler->m_ForwardReplStmts.pop_back_val());
             }
           }
           Stmt* Forward = unwrapIfSingleStmt(endBlock(forward));
@@ -2381,8 +2378,8 @@ namespace clad {
       BodyDiff = DifferentiateSingleStmt(body);
       addToCurrentBlock(BodyDiff.getStmt(), forward);
       if(m_EstimationInFlight){
-        while(!errorEstHandler->m_pushExpr.empty()){
-          addToCurrentBlock(errorEstHandler->m_pushExpr.pop_back_val());
+        while(!errorEstHandler->m_ForwardReplStmts.empty()){
+          addToCurrentBlock(errorEstHandler->m_ForwardReplStmts.pop_back_val());
         }
       }
       Stmt* Forward = endBlock(forward);
@@ -2629,8 +2626,9 @@ namespace clad {
     }
 
     llvm::SmallVector<VarDecl*, 16> ArgResultDecls{};
-    // Save current index in the current block, to potentially put some statements
-    // there later.
+    llvm::SmallVector<Expr *, 16> ParamErrEst{};
+    // Save current index in the current block, to potentially put some
+    // statements there later.
     std::size_t insertionPoint = getCurrentBlock(reverse).size();
     for (const Expr* Arg : CE->arguments()) {
       // Create temporary variables corresponding to derivative of each argument,
@@ -2739,6 +2737,13 @@ namespace clad {
         // If the derivative is called through _darg0 instead of _grad.
         Expr* d = BuildOp(BO_Mul, dfdx(), OverloadedDerivedFn);
         ArgResultDecls[0]->setInit(d);
+        if(m_EstimationInFlight){
+            Expr* errorExpr = errorEstHandler->m_EstModel->AssignError(
+                StmtDiff(CallArgs[0], BuildDeclRef(ArgResultDecls[0])));
+            Expr* ErrorStmt = BuildOp(BO_AddAssign, errorEstHandler->m_FinalError,
+                                  errorExpr);
+            errorEstHandler->m_ReverseErrorStmts.push_back(ErrorStmt);
+        }
       } else {
         // Put Result array declaration in the function body.
         // Call the gradient, passing Result as the last Arg.
@@ -2760,6 +2765,14 @@ namespace clad {
                                                                   I, noLoc).get();
           auto di = BuildOp(BO_Mul, dfdx(), ithResult);
           ArgResultDecls[i]->setInit(di);
+
+          if(m_EstimationInFlight){
+            Expr* errorExpr = errorEstHandler->m_EstModel->AssignError(
+                StmtDiff(CallArgs[i], BuildDeclRef(ArgResultDecls[i])));
+            Expr* ErrorStmt = BuildOp(BO_AddAssign, errorEstHandler->m_FinalError,
+                                  errorExpr);
+            errorEstHandler->m_ReverseErrorStmts.push_back(ErrorStmt);
+          }
         }
       }
     }
@@ -3163,7 +3176,7 @@ namespace clad {
         if(isInsideLoop){
           auto tape = MakeCladTapeFor(Ldiff.getExpr());
           savedExpr = {tape.Push, tape.Pop};
-          errorEstHandler->m_pushExpr.push_back(savedExpr.getExpr());
+          errorEstHandler->m_ForwardReplStmts.push_back(savedExpr.getExpr());
           // It is nice to save the pop value.
           Expr* popVal = StoreAndRef(savedExpr.getExpr_dx(), reverse);
           savedExpr = StmtDiff(savedExpr.getExpr(), popVal);
@@ -3172,7 +3185,7 @@ namespace clad {
                                          "_EERepl_" + Ldecl->getNameAsString());
           auto declRef = BuildDeclRef(varDecl);
           savedExpr = {declRef, declRef};
-          errorEstHandler->m_pushExpr.push_back(
+          errorEstHandler->m_ForwardReplStmts.push_back(
               BuildOp(BO_Assign, savedExpr.getExpr(), Ldiff.getExpr()));
         }
 
@@ -3192,6 +3205,11 @@ namespace clad {
           addToCurrentBlock(BuildOp(BO_AddAssign, errorEstHandler->m_FinalError,
                                     deltaVar), reverse);
         }
+
+        // If there are assign statements to emit in reverse, do that
+        while(!errorEstHandler->m_ReverseErrorStmts.empty())
+          addToCurrentBlock(errorEstHandler->m_ReverseErrorStmts.pop_back_val(),
+                            reverse);
       }
       // Update the derivative.
       addToCurrentBlock(BuildOp(BO_SubAssign, AssignedDiff, oldValue), reverse);
@@ -3289,7 +3307,7 @@ namespace clad {
           if(isInsideLoop){
             auto tape = MakeCladTapeFor(BuildDeclRef(VDDiff.getDecl()));
             savedDecl = StmtDiff(tape.Push, tape.Pop);
-            errorEstHandler->m_DeclErrStmt.push_back(savedDecl.getExpr());
+            errorEstHandler->m_ForwardReplStmts.push_back(savedDecl.getExpr());
             // Nice to store pop values becuase user might refer to getExpr
             // multiple time in Assign Error
             Expr* popVal = StoreAndRef(savedDecl.getExpr_dx(), reverse);
@@ -3300,7 +3318,7 @@ namespace clad {
                 QType, "_EERepl_" + VDDiff.getDecl()->getNameAsString());
             auto savedRef = BuildDeclRef(savedVD);
             savedDecl = StmtDiff(savedRef, savedRef);
-            errorEstHandler->m_DeclErrStmt.push_back(
+            errorEstHandler->m_ForwardReplStmts.push_back(
               BuildOp(BO_Assign, savedDecl.getExpr(), BuildDeclRef(VDDiff.getDecl())));
           }
           
