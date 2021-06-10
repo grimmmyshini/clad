@@ -2054,9 +2054,14 @@ namespace clad {
     for (Stmt* S : CS->body()) {
       StmtDiff SDiff = DifferentiateSingleStmt(S);
       addToCurrentBlock(SDiff.getStmt(), forward);
-      while(!errorEstHandler->m_DeclErrStmt.empty()){
+      if(m_EstimationInFlight){
+        while(!errorEstHandler->m_pushExpr.empty()){
+          addToCurrentBlock(errorEstHandler->m_pushExpr.pop_back_val(), forward);
+        }
+        while(!errorEstHandler->m_DeclErrStmt.empty()){
         addToCurrentBlock(errorEstHandler->m_DeclErrStmt.pop_back_val(),
                           forward);
+        }
       }
       addToCurrentBlock(SDiff.getStmt_dx(), reverse);
     }
@@ -2167,6 +2172,11 @@ namespace clad {
           beginBlock(forward);
           StmtDiff BranchDiff = DifferentiateSingleStmt(Branch);
           addToCurrentBlock(BranchDiff.getStmt(), forward);
+          if(m_EstimationInFlight){
+            while(!errorEstHandler->m_pushExpr.empty()){
+              addToCurrentBlock(errorEstHandler->m_pushExpr.pop_back_val());
+            }
+          }
           Stmt* Forward = unwrapIfSingleStmt(endBlock(forward));
           Stmt* Reverse = unwrapIfSingleStmt(BranchDiff.getStmt_dx());
           return StmtDiff(Forward, Reverse);
@@ -2370,6 +2380,11 @@ namespace clad {
       addToCurrentBlock(CounterIncrement);
       BodyDiff = DifferentiateSingleStmt(body);
       addToCurrentBlock(BodyDiff.getStmt(), forward);
+      if(m_EstimationInFlight){
+        while(!errorEstHandler->m_pushExpr.empty()){
+          addToCurrentBlock(errorEstHandler->m_pushExpr.pop_back_val());
+        }
+      }
       Stmt* Forward = endBlock(forward);
       Stmt* Reverse = unwrapIfSingleStmt(BodyDiff.getStmt_dx());
       BodyDiff = { Forward, Reverse };
@@ -2792,6 +2807,11 @@ namespace clad {
             if(deltaVar){
               StmtDiff savedVar = GlobalStoreAndRef(
                   ADRE, "_EERepl_" + DRE->getDecl()->getNameAsString());
+              if(isInsideLoop){
+                // It is nice to save the pop value.
+                Expr* popVal = StoreAndRef(savedVar.getExpr_dx(), reverse);
+                savedVar = StmtDiff(savedVar.getExpr(), popVal);
+              }
               Expr* erroExpr = errorEstHandler->m_EstModel->AssignError(
                   StmtDiff(savedVar.getExpr_dx(), ResultRef));
               Expr* deltaArraySub =
@@ -2815,6 +2835,11 @@ namespace clad {
             if(deltaVar){
               StmtDiff savedVar = GlobalStoreAndRef(
                   ADRE, "_EERepl_" + DRE->getDecl()->getNameAsString());
+              if(isInsideLoop){
+                // It is nice to save the pop value.
+                Expr* popVal = StoreAndRef(savedVar.getExpr_dx(), reverse);
+                savedVar = StmtDiff(savedVar.getExpr(), popVal);
+              }
               Expr* erroExpr = errorEstHandler->m_EstModel->AssignError(
                   StmtDiff(savedVar.getExpr_dx(), ResultRef));
               addToCurrentBlock(BuildOp(BO_AddAssign, deltaVar, erroExpr), reverse);
@@ -3133,10 +3158,24 @@ namespace clad {
       // expression is equivalent to x = x - y.
       if (m_EstimationInFlight && deltaVar) {
         // For now save all lhs
-        StmtDiff savedExpr = GlobalStoreAndRef(
-            Ldiff.getExpr(), "_EERepl_" + Ldecl->getNameAsString());
-        if(isInsideLoop)
-          addToCurrentBlock(savedExpr.getExpr(), forward);
+        StmtDiff savedExpr;
+
+        if(isInsideLoop){
+          auto tape = MakeCladTapeFor(Ldiff.getExpr());
+          savedExpr = {tape.Push, tape.Pop};
+          errorEstHandler->m_pushExpr.push_back(savedExpr.getExpr());
+          // It is nice to save the pop value.
+          Expr* popVal = StoreAndRef(savedExpr.getExpr_dx(), reverse);
+          savedExpr = StmtDiff(savedExpr.getExpr(), popVal);
+        } else{
+          auto varDecl = GlobalStoreImpl(Ldiff.getExpr()->getType(),
+                                         "_EERepl_" + Ldecl->getNameAsString());
+          auto declRef = BuildDeclRef(varDecl);
+          savedExpr = {declRef, declRef};
+          errorEstHandler->m_pushExpr.push_back(
+              BuildOp(BO_Assign, savedExpr.getExpr(), Ldiff.getExpr()));
+        }
+
         Expr* errorExpr = errorEstHandler->m_EstModel->AssignError(
             StmtDiff(savedExpr.getExpr_dx(), oldValue));
         
@@ -3251,6 +3290,10 @@ namespace clad {
             auto tape = MakeCladTapeFor(BuildDeclRef(VDDiff.getDecl()));
             savedDecl = StmtDiff(tape.Push, tape.Pop);
             errorEstHandler->m_DeclErrStmt.push_back(savedDecl.getExpr());
+            // Nice to store pop values becuase user might refer to getExpr
+            // multiple time in Assign Error
+            Expr* popVal = StoreAndRef(savedDecl.getExpr_dx(), reverse);
+            savedDecl = StmtDiff(savedDecl.getExpr(), popVal);
           }
           else if (!VD->getType()->isArrayType()){
             auto savedVD = GlobalStoreImpl(

@@ -31,8 +31,9 @@ using DeclWithContext = std::pair<clang::FunctionDecl*, clang::Decl*>;
 class ErrorEstimationHandler {
   /// Keeps a track of the delta error expression we shouldn't emit 
   bool m_DoNotEmitDelta = false;
-  /// Keeps track of the push expressions to add to forward mode post visitation
-  clang::Expr* m_pushExpr = nullptr;
+  /// Keeps track of the push expressions to add to forward mode post visitation.
+  /// Also heps maintain readability
+  VisitorBase::Stmts m_pushExpr;
   /// Reference to the final error parameter in the augumented target function
   clang::Expr* m_FinalError;
   /// Reference to the return error expression
