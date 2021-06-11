@@ -64,4 +64,15 @@ bool ErrorEstimationHandler::RegisterVariable(VarDecl* VD) {
   // Now, we can register the variable
   return true;
 }
+
+DeclRefExpr* ErrorEstimationHandler::GetUnderlyingDeclRefOrNull(Expr *expr){
+  // First check if it is an array subscript expression
+  ArraySubscriptExpr* temp = dyn_cast<ArraySubscriptExpr>(expr->IgnoreImplicit());
+  if(temp)
+    return dyn_cast<DeclRefExpr>(temp->getBase()->IgnoreImplicit());
+  else
+    return dyn_cast<DeclRefExpr>(expr->IgnoreImplicit());
+
+}
+
 } // namespace clad

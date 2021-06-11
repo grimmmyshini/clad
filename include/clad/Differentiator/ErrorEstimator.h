@@ -78,10 +78,10 @@ public:
   /// \brief Calculate aggregate error from m_EstimateVar.
   /// Builds the final error estimation statement
   clang::Stmt* CalculateAggregateError();
-  /// \brief Get the tape info for an estimate variable
-  /// \param[in] VD The variable declaration to get the replacement for
-  /// \returns A set of tape push/pop/top expressions
-  // TapeInfo GetReplacement(clang::VarDecl* VD);
+  /// \brief Get the underlying DeclRefExpr type it it exists
+  /// \param[in] expr The expression whose DeclRefExpr is requested 
+  /// \returns The DeclRefExpr of input or null
+  clang::DeclRefExpr* GetUnderlyingDeclRefOrNull(clang::Expr* expr);
 
   friend class ReverseModeVisitor;
 };

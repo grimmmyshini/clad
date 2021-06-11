@@ -638,7 +638,8 @@ namespace clad {
     /// CompoundStmt (if several statements are created) and proper Stmt
     /// order is maintained.
     StmtDiff DifferentiateSingleStmt(const clang::Stmt *S,
-                                     clang::Expr *dfdS = nullptr);
+                                     clang::Expr *dfdS = nullptr, 
+                                     bool doNotEmit = false);
     /// A helper method used to keep substatements created by Visit(E, expr) in
     /// separate forward/reverse blocks instead of putting them into current
     /// blocks. First result is a StmtDiff of forward/reverse blocks with
