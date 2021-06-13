@@ -57,7 +57,8 @@ namespace clad {
 
 namespace clad {
   class ErrorEstimationHandler;
-  // A pointer to a the handler to be used for estimation requests
+  class FPErrorEstimationModel;
+  // A pointer to a the handler to be used for estimation requests.
   extern std::unique_ptr<ErrorEstimationHandler> errorEstHandler;
 
   /// A pair of FunctionDecl and potential enclosing context, e.g. a function
@@ -87,6 +88,8 @@ namespace clad {
     clang::ASTContext& m_Context;
     std::unique_ptr<utils::StmtClone> m_NodeCloner;
     clang::NamespaceDecl* m_BuiltinDerivativesNSD;
+    /// A reference to the model to use for error estimation (if any).
+    std::unique_ptr<FPErrorEstimationModel> m_EstModel = nullptr;
     DeclWithContext cloneFunction(const clang::FunctionDecl* FD,
                                   clad::VisitorBase VB,
                                   clang::DeclContext* DC,
@@ -115,7 +118,11 @@ namespace clad {
   public:
     DerivativeBuilder(clang::Sema& S, plugin::CladPlugin& P);
     ~DerivativeBuilder();
-
+    /// Reset the model use for error estimation (if any).
+    /// \param[in] estModel The error estimation model, can be either
+    /// an in-built one (TaylorApprox) or one provided by the user.
+    void
+    ResetErrorEstimationModelInUse(std::unique_ptr<FPErrorEstimationModel> estModel);
     ///\brief Produces the derivative of a given function
     /// according to a given plan.
     ///

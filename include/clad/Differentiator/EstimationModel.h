@@ -18,16 +18,20 @@ namespace clad {
 namespace clad {
 
   /// A class to facilitate usage of user defined error estimation models.
-  class EstimationModel : public VisitorBase {
+  class FPErrorEstimationModel : public VisitorBase {
   protected:
     /// Map to keep track of the error estimate variables for each declaration
     /// reference.
     std::unordered_map<const clang::VarDecl*, clang::Expr*> m_EstimateVar;
 
   public:
-    EstimationModel(DerivativeBuilder& builder) : VisitorBase(builder) {}
-    virtual ~EstimationModel();
-    /// \brief Check if a variable is registered for estimation.
+    FPErrorEstimationModel(DerivativeBuilder& builder) : VisitorBase(builder) {}
+    virtual ~FPErrorEstimationModel();
+    /// Clear the variable estimate map so that we can start afresh.
+    void clearModel() {
+      m_EstimateVar.clear();
+    }
+    /// Check if a variable is registered for estimation.
     /// \param[in] VD The variable to check.
     /// \returns The delta expression of the variable if it is registered,
     /// nullptr otherwise.
@@ -87,9 +91,9 @@ namespace clad {
     /// custom model.
     /// \param[in] builder A build instance to pass to the custom model
     /// constructor.
-    /// \returns A reference to the custom class wrapped in the EstimationModel
+    /// \returns A reference to the custom class wrapped in the FPErrorEstimationModel
     /// class.
-    virtual std::unique_ptr<EstimationModel>
+    virtual std::unique_ptr<FPErrorEstimationModel>
     InstantiateCustomModel(DerivativeBuilder& builder) = 0;
   };
 
@@ -100,16 +104,16 @@ namespace clad {
   public:
     /// \brief Return an instance of the user defined custom class.
     /// \param[in] builder The current instance of derivative builder.
-    std::unique_ptr<EstimationModel>
-    InstantiateCustomModel(DerivativeBuilder& builder) {
-      return std::unique_ptr<EstimationModel>(new CustomClass(builder));
+    std::unique_ptr<FPErrorEstimationModel>
+    InstantiateCustomModel(DerivativeBuilder& builder) override {
+      return std::unique_ptr<FPErrorEstimationModel>(new CustomClass(builder));
     }
   };
 
   /// Example class for taylor series approximation based error estimation.
-  class TaylorApprox : public EstimationModel {
+  class TaylorApprox : public FPErrorEstimationModel {
   public:
-    TaylorApprox(DerivativeBuilder& builder) : EstimationModel(builder) {}
+    TaylorApprox(DerivativeBuilder& builder) : FPErrorEstimationModel(builder) {}
     // Return an expression of the following kind:
     //  dfdx * delta_x * Em
     clang::Expr* AssignError(StmtDiff refExpr);

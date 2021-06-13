@@ -332,6 +332,44 @@ namespace clad {
     // Since 'return' is not an assignment, add its error to _final_error
     // given it is not a DeclRefExpr
     if (m_EstimationInFlight) {
+      // Emit error variables of parameters at the end.
+      for(size_t i = 0; i < numParams; i++){
+        // FIXME: Find out a "pretty" way to do this for pointer/array types.
+        // Right now, we just ignore them since we have no way of knowing 
+        // the size of an array.
+        if(params[i]->getType()->isArrayType() || params[i]->getType()->isPointerType())
+          continue;
+
+        // Check if the declaration was registered
+        auto decl = dyn_cast<VarDecl>(params[i]);
+        Expr *deltaVar = errorEstHandler->m_EstModel->IsVariableRegistered(decl);
+        
+        // If not registered, check if it is eligible for registration and do
+        // the needful.
+        if (!deltaVar && errorEstHandler->RegisterVariable(decl)) {
+          auto init = errorEstHandler->m_EstModel->SetError(decl);
+          init = init ? init : getZeroInit(decl->getType());
+          auto deltaDecl = BuildVarDecl(
+              decl->getType(), "_delta_" + decl->getNameAsString(), init);
+          addToCurrentBlock(BuildDeclStmt(deltaDecl));
+          deltaVar = BuildDeclRef(deltaDecl);
+          errorEstHandler->m_EstModel->AddVarToEstimate(
+              decl, deltaVar);
+        }
+        
+        // If till now, we have a delta declaration, emit it into the code.
+        if(deltaVar) {
+          // Since we need the input value of x, check for a replacement.
+          // If no replacement found, use the actual declRefExpr.
+          auto savedVal = errorEstHandler->GetParamReplacement(decl);
+          savedVal = savedVal ? savedVal : BuildDeclRef(decl);
+          // Finally emit the error.
+          auto errorExpr = errorEstHandler->m_EstModel->AssignError(
+              {savedVal, m_Variables[decl]});
+          addToCurrentBlock(BuildOp(BO_AddAssign, deltaVar, errorExpr));
+        }
+      }
+
       Expr* finExpr = nullptr;
       // If we encountered any expression in the return statement
       // we must add its error to the final estimate
@@ -1035,20 +1073,26 @@ namespace clad {
     // If the result does not depend on the result of the call, just clone
     // the call and visit arguments (since they may contain side-effects like
     // f(x = y))
+    // FIXME: What about pass-by-reference calls?
     if (!dfdx()) {
+      // unsigned int i = 0;
+      // const FunctionDecl* fnDecl = CE->getDirectCallee();
       for (const Expr* Arg : CE->arguments()) {
         StmtDiff ArgDiff = Visit(Arg, dfdx());
         CallArgs.push_back(ArgDiff.getExpr());
         // If in error estimation, we want to store the errors in each input
-        // variable to a call expression, hence we should build an error
-        // expression here and store it to emit later
-        if (m_EstimationInFlight) {
-          Expr* errorExpr = errorEstHandler->m_EstModel->AssignError(
-              StmtDiff(ArgDiff.getExpr(), ArgDiff.getExpr_dx()));
-          Expr* ErrorStmt =
-              BuildOp(BO_AddAssign, errorEstHandler->m_FinalError, errorExpr);
-          errorEstHandler->m_ReverseErrorStmts.push_back(ErrorStmt);
-        }
+        // variable to a call expression given it is reference type, hence 
+        // we should build an error expression here and store it to emit later.
+        // FIXME: We need a derivative wrt each pass-by-reference input here.
+        // if (m_EstimationInFlight && fnDecl &&
+        //     fnDecl->getParamDecl(i)->getType()->isLValueReferenceType()) {
+        //   Expr* errorExpr = errorEstHandler->m_EstModel->AssignError(
+        //       StmtDiff(ArgDiff.getExpr(), ArgDiff.getExpr_dx()));
+        //   Expr* ErrorStmt =
+        //       BuildOp(BO_AddAssign, errorEstHandler->m_FinalError, errorExpr);
+        //   errorEstHandler->m_ReverseErrorStmts.push_back(ErrorStmt);
+        // }
+        // i++;
       }
       Expr* call = m_Sema
                        .ActOnCallExpr(getCurrentScope(),
@@ -1189,14 +1233,18 @@ namespace clad {
 
     if (OverloadedDerivedFn) {
       // Derivative was found.
+      FunctionDecl* fnDecl =
+          dyn_cast<CallExpr>(OverloadedDerivedFn)->getDirectCallee();
       if (!asGrad) {
         // If the derivative is called through _darg0 instead of _grad.
         Expr* d = BuildOp(BO_Mul, dfdx(), OverloadedDerivedFn);
 
         PerformImplicitConversionAndAssign(ArgResultDecls[0], d);
         // If in error estimation, build the statement for the error
-        // in the input prameters to call ans save to emit them later
-        if (m_EstimationInFlight) {
+        // in the input prameters (if they are reference types) to call and
+        // save to emit them later.
+        if (m_EstimationInFlight && fnDecl &&
+            fnDecl->getParamDecl(0)->getType()->isLValueReferenceType()) {
           Expr* errorExpr = errorEstHandler->m_EstModel->AssignError(
               StmtDiff(CallArgs[0], BuildDeclRef(ArgResultDecls[0])));
           Expr* ErrorStmt =
@@ -1226,8 +1274,10 @@ namespace clad {
 
           PerformImplicitConversionAndAssign(ArgResultDecls[i], di);
           // If in error estimation, build the statement for the error
-          // in the input prameters to call ans save to emit them later
-          if (m_EstimationInFlight) {
+          // in the input prameters (if of reference type) to call and save to
+          // emit them later.
+          if (m_EstimationInFlight && fnDecl &&
+              fnDecl->getParamDecl(i)->getType()->isLValueReferenceType()) {
             Expr* errorExpr = errorEstHandler->m_EstModel->AssignError(
                 StmtDiff(CallArgs[i], BuildDeclRef(ArgResultDecls[i])));
             Expr* ErrorStmt =
@@ -1570,6 +1620,13 @@ namespace clad {
             deltaVar = BuildDeclRef(regVar);
             // Register the variable for estimate calculation
             errorEstHandler->m_EstModel->AddVarToEstimate(Ldecl, deltaVar);
+            // Finally, save the old value of the independent param.
+            errorEstHandler->m_paramRepls.emplace(
+                Ldecl,
+                StoreAndRef(LCloned,
+                            forward,
+                            "_EERepl_" + Ldecl->getNameAsString(),
+                            true));
           }
         }
       }

@@ -109,6 +109,11 @@ namespace clad {
     return { returnedFD, enclosingNS };
   }
 
+  void DerivativeBuilder::ResetErrorEstimationModelInUse(
+      std::unique_ptr<FPErrorEstimationModel> estModel) {
+    m_EstModel = std::move(estModel);
+  }
+
   DeclWithContext DerivativeBuilder::Derive(const FunctionDecl* FD,
                                             const DiffRequest& request) {
     //m_Sema.CurContext = m_Context.getTranslationUnitDecl();

@@ -9,21 +9,21 @@ using namespace clang;
 
 namespace clad {
 
-  EstimationModel::~EstimationModel() {}
+  FPErrorEstimationModel::~FPErrorEstimationModel() {}
 
-  Expr* EstimationModel::IsVariableRegistered(const VarDecl* VD) {
+  Expr* FPErrorEstimationModel::IsVariableRegistered(const VarDecl* VD) {
     auto it = m_EstimateVar.find(VD);
     if (it != m_EstimateVar.end())
       return it->second;
     return nullptr;
   }
 
-  void EstimationModel::AddVarToEstimate(VarDecl* VD, Expr* VDRef) {
+  void FPErrorEstimationModel::AddVarToEstimate(VarDecl* VD, Expr* VDRef) {
     m_EstimateVar.emplace(VD, VDRef);
   }
 
-  // FIXME: Maybe this should be left to the user too
-  Expr* EstimationModel::CalculateAggregateError() {
+  // FIXME: Maybe this should be left to the user too.
+  Expr* FPErrorEstimationModel::CalculateAggregateError() {
     Expr* addExpr = nullptr;
     // Loop over all the error variables and form the final error expression of
     // the form... _final_error = _delta_var + _delta_var1 +...

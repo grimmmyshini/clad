@@ -238,7 +238,7 @@ namespace clad {
     /// \brief Builds variable declaration to be used inside the derivative
     /// body. 
     /// \param[in] Type The type of variable declaration to build.
-    /// \param[in] prefix The name of the varaible declaration to build.
+    /// \param[in] prefix The name of the variable declaration to build.
     /// \param[in] Init The initalization expression to assign to the variable
     ///  declaration. 
     /// \param[in] DirectInit A check for if the initialization expression is a
@@ -264,8 +264,8 @@ namespace clad {
     /// \returns The declration statement expression corresponding to the input
     /// variable declaration. 
     clang::DeclStmt* BuildDeclStmt(clang::Decl* D);
-    /// \brief Wraps a set of declarations in a DeclStmt.
-    /// \n This function is useful to wrap multiple vraibale declarations in one
+    /// Wraps a set of declarations in a DeclStmt.
+    /// \n This function is useful to wrap multiple variable declarations in one
     /// single declaration statement. 
     /// \param[in] D The declarations to build a declaration statement from.
     /// \returns The declration statemetn expression corresponding to the input
@@ -274,7 +274,7 @@ namespace clad {
 
     /// \brief Builds a DeclRefExpr to a given Decl.
     /// \n To emit variables into code, we need to use their corresponding 
-    /// declaration reference expressions. This function build a declaration
+    /// declaration reference expressions. This function builds a declaration
     /// reference given a declaration.
     /// \param[in] D The declaration to build a DeclRefExpr for.
     /// \returns the DeclRefExpr for the given declaration.

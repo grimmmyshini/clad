@@ -8,6 +8,10 @@
 using namespace clang;
 
 namespace clad {
+  void ErrorEstimationHandler::SetErrorEstimationModelInUse(
+      FPErrorEstimationModel* estModel) {
+    m_EstModel = estModel;
+  }
 
   DeclWithContext
   ErrorEstimationHandler::Calculate(const clang::FunctionDecl* FD,
@@ -79,6 +83,13 @@ namespace clad {
       return dyn_cast<DeclRefExpr>(temp->getBase()->IgnoreImplicit());
     else
       return dyn_cast<DeclRefExpr>(expr->IgnoreImplicit());
+  }
+
+  Expr* ErrorEstimationHandler::GetParamReplacement(const VarDecl* VD) {
+    auto it = m_paramRepls.find(VD);
+    if (it != m_paramRepls.end())
+      return it->second;
+    return nullptr;
   }
 
 } // namespace clad

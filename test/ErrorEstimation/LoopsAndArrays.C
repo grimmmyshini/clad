@@ -40,13 +40,14 @@ float func(float *p, int n){
 // CHECK-NEXT:             _d_sum += _r_d0;
 // CHECK-NEXT:             _result[clad::pop(_t1)] += _r_d0;
 // CHECK-NEXT:             float _r0 = clad::pop(_t2);
-// CHECK-NEXT:             _delta_sum += _r_d0 * _r0 * 1.1920928955078125E-7;
+// CHECK-NEXT:             _delta_sum += _r_d0 * _r0 * {{.+}};
 // CHECK-NEXT:             _d_sum -= _r_d0;
 // CHECK-NEXT:         }
 // CHECK-NEXT:     }
-// CHECK-NEXT:     _delta_sum += _d_sum * _EERepl_sum0 * 1.1920928955078125E-7;
+// CHECK-NEXT:     _delta_sum += _d_sum * _EERepl_sum0 * {{.+}};
 // CHECK-NEXT:     _final_error += _delta_sum;
 // CHECK-NEXT: }
+
 
 float func2(float x){
   float z;
@@ -89,7 +90,7 @@ float func2(float x){
 // CHECK-NEXT:             _d_m += _r_d0;
 // CHECK-NEXT:             _d_m += _r_d0;
 // CHECK-NEXT:             float _r3 = clad::pop(_t4);
-// CHECK-NEXT:             _delta_z += _r_d0 * _r3 * 1.1920928955078125E-7;
+// CHECK-NEXT:             _delta_z += _r_d0 * _r3 * {{.+}};
 // CHECK-NEXT:             _d_z -= _r_d0;
 // CHECK-NEXT:         }
 // CHECK-NEXT:         {
@@ -98,10 +99,12 @@ float func2(float x){
 // CHECK-NEXT:             float _r1 = clad::pop(_t2) * _d_m;
 // CHECK-NEXT:             _result[0UL] += _r1;
 // CHECK-NEXT:             float _r2 = clad::pop(_t3);
-// CHECK-NEXT:             _delta_m += _d_m * _r2 * 1.1920928955078125E-7;
+// CHECK-NEXT:             _delta_m += _d_m * _r2 * {{.+}};
 // CHECK-NEXT:         }
 // CHECK-NEXT:     }
-// CHECK-NEXT:     _final_error += _delta_{{z|m}} + _delta_{{z|m}};
+// CHECK-NEXT:     float _delta_x = 0;
+// CHECK-NEXT:     _delta_x += _result[0UL] * x * {{.+}};
+// CHECK-NEXT:     _final_error += _delta_{{x|z|m}} + _delta_{{x|z|m}} + _delta_{{x|z|m}};
 // CHECK-NEXT: }
 
 int main(){
