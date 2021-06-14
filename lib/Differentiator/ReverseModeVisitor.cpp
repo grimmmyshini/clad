@@ -395,10 +395,11 @@ namespace clad {
         addErrorExpr = finExpr;
       }
 
-      // Finally add the final error expression to the derivative body
-      addToCurrentBlock(
-          BuildOp(BO_AddAssign, errorEstHandler->m_FinalError, addErrorExpr),
-          forward);
+      if (addErrorExpr)
+        // Finally add the final error expression to the derivative body
+        addToCurrentBlock(
+            BuildOp(BO_AddAssign, errorEstHandler->m_FinalError, addErrorExpr),
+            forward);
     }
 
     Stmt* gradientBody = endBlock();
