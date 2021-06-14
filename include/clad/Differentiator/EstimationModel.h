@@ -87,6 +87,7 @@ namespace clad {
   /// A base class to build the error estimation registry over.
   class EstimationPlugin {
   public:
+    virtual ~EstimationPlugin() {}
     /// \brief Function that will return the instance of the user registered
     /// custom model.
     /// \param[in] builder A build instance to pass to the custom model
@@ -116,10 +117,10 @@ namespace clad {
     TaylorApprox(DerivativeBuilder& builder) : FPErrorEstimationModel(builder) {}
     // Return an expression of the following kind:
     //  dfdx * delta_x * Em
-    clang::Expr* AssignError(StmtDiff refExpr);
+    clang::Expr* AssignError(StmtDiff refExpr) override;
 
     // For now, we can just return null.
-    clang::Expr* SetError(clang::VarDecl* decl);
+    clang::Expr* SetError(clang::VarDecl* decl) override;
   };
 
 } // namespace clad

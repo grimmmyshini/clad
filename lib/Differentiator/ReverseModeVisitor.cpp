@@ -55,10 +55,14 @@ namespace clad {
         GetCladTapeOfType(getNonConstType(E->getType(), m_Context, m_Sema));
     LookupResult& Push = GetCladTapePush();
     LookupResult& Pop = GetCladTapePop();
-    llvm::StringRef prefix =
-        forEst ? "_EERepl_" +
-                     dyn_cast<DeclRefExpr>(E)->getDecl()->getNameAsString()
-               : "_t";
+    std::string namePrefix;
+    // Check if we got a declaration reference.
+    auto declRef = errorEstHandler->GetUnderlyingDeclRefOrNull(E);
+    if (declRef && forEst)
+      namePrefix = "_EERepl_" + declRef->getDecl()->getNameAsString();
+    else
+      namePrefix = "_t";
+    llvm::StringRef prefix = namePrefix;
     Expr* TapeRef = BuildDeclRef(GlobalStoreImpl(TapeType, prefix));
     auto VD = cast<VarDecl>(cast<DeclRefExpr>(TapeRef)->getDecl());
     // Add fake location, since Clang AST does assert(Loc.isValid()) somewhere.
@@ -1337,7 +1341,7 @@ namespace clad {
               dyn_cast<VarDecl>(DRE->getDecl()));
           // If not, we don't care about it
           if (deltaVar) {
-            // Create a vvariable/tape call to store the current value of the
+            // Create a variable/tape call to store the current value of the
             // the sub-expression so that it can be used later
             StmtDiff savedVar = GlobalStoreAndRef(
                 DRE, "_EERepl_" + DRE->getDecl()->getNameAsString());
@@ -1751,11 +1755,10 @@ namespace clad {
           // FIXME: build add assign into he same expression i.e.
           // _final_error += _delta_arr[pop(_t0)] = <-Error Expr->
           // to avoid storage of the pop value
-          Expr* popVal;
+          Expr* popVal =
+              dyn_cast<ArraySubscriptExpr>(Ldiff.getExpr_dx())->getIdx();
           if (isInsideLoop) {
-            popVal = StoreAndRef(
-                dyn_cast<ArraySubscriptExpr>(Ldiff.getExpr_dx())->getIdx(),
-                reverse);
+            popVal = StoreAndRef(popVal, reverse);
           }
           deltaVar = m_Sema
                          .CreateBuiltinArraySubscriptExpr(
