@@ -1,9 +1,9 @@
 // RUN: %cladclang %s -x c++ -lstdc++ -I%S/../../include -oLoopsAndArrays.out 2>&1 | FileCheck %s
 //CHECK-NOT: {{.*error|warning|note:.*}}
 
-#include <iostream>
-
 #include "clad/Differentiator/Differentiator.h"
+
+#include <iostream>
 
 // Arrays in loops
 float func(float *p, int n){
@@ -109,7 +109,7 @@ float func2(float x){
 
 int main(){
 
-  clad::error_estimation(func);
-  clad::error_estimation(func2);
+  clad::estimate_error(func);
+  clad::estimate_error(func2);
 
 }

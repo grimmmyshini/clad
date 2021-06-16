@@ -11,7 +11,7 @@
 #include "clad/Differentiator/Differentiator.h"
 
 // Use a trivial dummy example to check if the our custom model is working
-// correctly
+// correctly.
 float func(float x, float y) {
   float z;
   z = x + y;
@@ -20,7 +20,7 @@ float func(float x, float y) {
 
 int main() {
   // Call error-estimate on func.
-  auto df = clad::error_estimation(func);
+  auto df = clad::estimate_error(func);
   // Finally, dump the generated code.
   df.dump();
 }

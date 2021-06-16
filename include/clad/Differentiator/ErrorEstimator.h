@@ -56,22 +56,22 @@ namespace clad {
     /// This function internally calls ReverseModeVisitor::Derive.
     /// \param[in] FD Function declaration on which estimation is performed.
     /// \param[in] request The meta information about the kind of
-    /// differentiation to be used for estimation. 
-    /// \returns the new derivative function augmented with estimation code 
+    /// differentiation to be used for estimation.
+    /// \returns the new derivative function augmented with estimation code
     /// and its potential enclosing context.
     DeclWithContext Calculate(const clang::FunctionDecl* FD,
                               const DiffRequest& request);
-    /// \brief Register variables to be used while accumulating error.
+    /// Register variables to be used while accumulating error.
     /// \n Register variable declarations so that they may be used while
     /// calculating the final error estimates. Any unregistered variables will
     /// not be considered for the final estimation.
     /// \param[in] VD The variable declaration to be registered.
     /// \returns The Variable declaration of the '_delta_' prefixed variable.
     bool RegisterVariable(clang::VarDecl* VD);
-    /// \brief Calculate aggregate error from m_EstimateVar.
+    /// Calculate aggregate error from m_EstimateVar.
     /// Builds the final error estimation statement.
     clang::Stmt* CalculateAggregateError();
-    /// \brief Get the underlying DeclRefExpr type it it exists.
+    /// Get the underlying DeclRefExpr type it it exists.
     /// \param[in] expr The expression whose DeclRefExpr is requested.
     /// \returns The DeclRefExpr of input or null.
     clang::DeclRefExpr* GetUnderlyingDeclRefOrNull(clang::Expr* expr);

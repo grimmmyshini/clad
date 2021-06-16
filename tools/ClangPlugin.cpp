@@ -146,20 +146,20 @@ namespace clad {
       if (m_DO.DumpSourceFnAST) {
         FD->dumpColor();
       }
-      // if enabled, load the dynamic library input from user to use 
-      // as a custom estimation model
+      // if enabled, load the dynamic library input from user to use
+      // as a custom estimation model.
       if (m_DO.CustomEstimationModel) {
         std::string Err;
         if (llvm::sys::DynamicLibrary::LoadLibraryPermanently(
-                m_DO.CustomModel.c_str(), &Err))
-          llvm::errs() << "Could not load " << m_DO.CustomModel << " " << Err;
+                m_DO.CustomModelName.c_str(), &Err))
+          llvm::errs() << "Could not load " << m_DO.CustomModelName << " " << Err;
         for (auto it = ErrorEstimationModelRegistry::begin(),
                   ie = ErrorEstimationModelRegistry::end();
-             it != ie; ++it) {
+             it != ie;
+             ++it) {
           auto estimationPlugin = it->instantiate();
-          request.CustomModel =
-              estimationPlugin->InstantiateCustomModel(*m_DerivativeBuilder)
-                  .release();
+          m_DerivativeBuilder->ResetErrorEstimationModelInUse(
+              estimationPlugin->InstantiateCustomModel(*m_DerivativeBuilder));
         }
       }
       FunctionDecl* DerivativeDecl = nullptr;

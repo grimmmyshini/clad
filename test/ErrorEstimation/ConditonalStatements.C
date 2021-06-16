@@ -1,9 +1,9 @@
 // RUN: %cladclang %s -x c++ -lstdc++ -I%S/../../include -oCondStmts.out 2>&1 | FileCheck %s
 //CHECK-NOT: {{.*error|warning|note:.*}}
 
-#include <iostream>
-
 #include "clad/Differentiator/Differentiator.h"
+
+#include <iostream>
 
 // Single statement if/else 
 float func(float x, float y){
@@ -243,9 +243,9 @@ float func4(float x, float y){
 
 int main(){
 
-  clad::error_estimation(func);
-  clad::error_estimation(func2);
-  clad::error_estimation(func3);
-  clad::error_estimation(func4);
+  clad::estimate_error(func);
+  clad::estimate_error(func2);
+  clad::estimate_error(func3);
+  clad::estimate_error(func4);
 
 }

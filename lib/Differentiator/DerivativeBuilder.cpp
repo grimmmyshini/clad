@@ -10,10 +10,10 @@
 #include "clad/Differentiator/HessianModeVisitor.h"
 #include "clad/Differentiator/JacobianModeVisitor.h"
 #include "clad/Differentiator/ReverseModeVisitor.h"
+#include "clad/Differentiator/ErrorEstimator.h"
 
 #include "clad/Differentiator/DiffPlanner.h"
 #include "clad/Differentiator/StmtClone.h"
-#include "clad/Differentiator/ErrorEstimator.h"
 
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/TemplateBase.h"
@@ -142,9 +142,19 @@ namespace clad {
       JacobianModeVisitor J(*this);
       result = J.Derive(FD, request);
     } else if (request.Mode == DiffMode::error_estimation) {
-      // Set the handler and call calculate to begin estimation
+      // Set the handler.
       errorEstHandler.reset(new ErrorEstimationHandler(*this));
+      // Set error estimation model. If no custom model provided by user,
+      // use the built in Taylor approximation model.
+      if (!m_EstModel){
+        m_EstModel.reset(new TaylorApprox(*this));
+      }
+      errorEstHandler->SetErrorEstimationModelInUse(m_EstModel.get()); 
+      // Finally call calculate to begin estimation.
       result = errorEstHandler->Calculate(FD, request);
+      // Once we are done, we want to clear the model for any further
+      // calls to estimate_error.
+      m_EstModel->clearModel();
     }
 
     if (result.first)

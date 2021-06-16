@@ -1,4 +1,4 @@
-// For information on how to run this demo, please take a look at the README
+// For information on how to run this demo, please take a look at the README.
 
 #include "CustomModel.h"
 

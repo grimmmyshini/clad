@@ -38,17 +38,14 @@
 // Necessary for clad to work include
 #include "clad/Differentiator/Differentiator.h"
 
-#include <iostream>
-// Necessary for saving data to plot.
-#include <fstream>
-// Necessary for std::setprecision
-#include <iomanip>
-// Necessary for math functions
-#include <cmath>
+#include <iostream> // Necessary for printing to stdout 
+#include <fstream>  // Necessary for saving data to plot.
+#include <iomanip>  // Necessary for std::setprecision
+#include <cmath>    // Necessary for math functions
 
-// Repeated addition of finite precision floating point numbers results in loss
-// of significance in the results. Hence, here we consider 2 functions, one is a
-// vanilla summation algortihm and the other is a compensated summation
+// Repeated addition of finite precision floating point numbers leads to a loss
+// of significance in the results. Hence, here we consider 2 functions, one is
+// a vanilla summation algortihm and the other is a compensated summation
 // algorithm. We will be using the latter as the ground truth and will be
 // comparing the results of our estimation accordingly.
 
@@ -86,7 +83,7 @@ double kahanSum(float x, unsigned int n) {
 
 int main() {
 
-  auto df = clad::error_estimation(vanillaSum);
+  auto df = clad::estimate_error(vanillaSum);
 
   // Select starting parameters
   double x = 0.10003E-5, finalError;

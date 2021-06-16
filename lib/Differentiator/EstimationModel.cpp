@@ -30,7 +30,7 @@ namespace clad {
     for (auto var : m_EstimateVar) {
       // Errors through array subscript expressions are already captured
       // to avoid having long add expression at the end and to only add
-      // the values to the final error that have a non zero delta
+      // the values to the final error that have a non zero delta.
       if (var.first->getType()->isArrayType())
         continue;
 
@@ -40,27 +40,27 @@ namespace clad {
       }
       addExpr = BuildOp(BO_Add, addExpr, var.second);
     }
-    // Return an expression that can be directly assigned to final error
+    // Return an expression that can be directly assigned to final error.
     return addExpr;
   }
 
   Expr* TaylorApprox::AssignError(StmtDiff refExpr) {
-    // Get the machine epsilon value
+    // Get the machine epsilon value.
     double val = std::numeric_limits<float>::epsilon();
-    // Convert it into a floating point literal clang::Expr
+    // Convert it into a floating point literal clang::Expr.
     auto epsExpr = FloatingLiteral::Create(
         m_Context, llvm::APFloat(val), true, m_Context.DoubleTy, noLoc);
-    // Build the final operations
-    // Here, we first build a multiplication operation for the following
+    // Build the final operations.
+    // Here, we first build a multiplication operation for the following:
     // refExpr * <--floating point literal (i.e. machine dependent constant)-->
     // Build another multiplication operation with above and the derivative
-    // value
+    // value.
     return BuildOp(BO_Mul,
                    refExpr.getExpr_dx(),
                    BuildOp(BO_Mul, refExpr.getExpr(), epsExpr));
   }
 
-  // return nullptr here, this is interpreted as 0 internally
+  // return nullptr here, this is interpreted as 0 internally.
   Expr* TaylorApprox::SetError(VarDecl* declStmt) { return nullptr; }
 
 } // namespace clad

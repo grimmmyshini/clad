@@ -6,7 +6,7 @@
 //
 // author:  Garima Singh
 //----------------------------------------------------------------------------//
-// For information on how to run this demo, please take a look at the README
+// For information on how to run this demo, please take a look at the README.
 
 #include "clad/Differentiator/EstimationModel.h"
 #include "clad/tools/ClangPlugin.h"

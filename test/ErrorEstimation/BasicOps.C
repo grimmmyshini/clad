@@ -1,10 +1,10 @@
 // RUN: %cladclang %s -I%S/../../include -fsyntax-only -Xclang -verify 2>&1 | FileCheck %s
 //CHECK-NOT: {{.*error|warning|note:.*}}
 
+#include "clad/Differentiator/Differentiator.h"
+
 #include <cmath>
 #include <iostream>
-
-#include "clad/Differentiator/Differentiator.h"
 
 // Add/Sub operations
 float func(float x, float y){

@@ -40,7 +40,7 @@ namespace clad {
         : DumpSourceFn(false), DumpSourceFnAST(false), DumpDerivedFn(false),
           DumpDerivedAST(false), GenerateSourceFile(false),
           ValidateClangVersion(false), CustomEstimationModel(false),
-          CustomModel("") {}
+          CustomModelName("") {}
 
     bool DumpSourceFn : 1;
     bool DumpSourceFnAST : 1;
@@ -49,7 +49,7 @@ namespace clad {
     bool GenerateSourceFile : 1;
     bool ValidateClangVersion : 1;
     bool CustomEstimationModel : 1;
-    std::string CustomModel;
+    std::string CustomModelName;
     };
 
     class CladPlugin : public clang::ASTConsumer {
@@ -131,7 +131,7 @@ namespace clad {
                      "for more information. Terminating build.";
               return false;
             }
-            m_DO.CustomModel = args[i];
+            m_DO.CustomModelName = args[i];
           } else if (args[i] == "-help") {
             // Print some help info.
             llvm::errs()

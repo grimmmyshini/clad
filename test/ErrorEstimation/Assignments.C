@@ -2,8 +2,9 @@
 // RUN: ./Assignments.out
 //CHECK-NOT: {{.*error|warning|note:.*}}
 
-#include <iostream>
 #include "clad/Differentiator/Differentiator.h"
+
+#include <iostream>
 
 float func(float x, float y) {
   x = x + y;
@@ -210,12 +211,12 @@ float func7(float x, float y){
 
 int main(){
 
-  clad::error_estimation(func);
-  clad::error_estimation(func2);
-  clad::error_estimation(func3);
-  clad::error_estimation(func4);
-  clad::error_estimation(func5);
-  clad::error_estimation(func6);
-  clad::error_estimation(func7);
+  clad::estimate_error(func);
+  clad::estimate_error(func2);
+  clad::estimate_error(func3);
+  clad::estimate_error(func4);
+  clad::estimate_error(func5);
+  clad::estimate_error(func6);
+  clad::estimate_error(func7);
 
 }

@@ -1,12 +1,12 @@
 # Using your custom estimation model with clad 
-Clad's error estimation framework provides users with a choice to write their own custom error models and use those to generate estimation code. By default clad uses the Taylor series approximation model to estimate errors in a function, this model however might not be the most sutiable alternative in many cases. In such scenarios, a user might prefer writing their own models. 
+Clad's error estimation framework provides users with a choice to write their own custom error models and use those to generate estimation code. By default clad uses the Taylor series approximation model to estimate errors in a function, however this model might not be the most sutiable alternative in many cases. In such scenarios, a user may prefer to write their own model to get better fp error estimates. 
 
-The aim of this demo is to illustrate how one can integrate thier custom model with clad. For in depth information on how to *write* your own custom estimation model, check out the tutorials here.
+The aim of this demo is to illustrate how one can integrate a custom model with clad. For in depth information on how to *write* your own custom estimation model, check out the tutorials here.
  <!--- TODO: Add doc link -->
 
 ## Building the demo
 
-Before we can use the custom model, we should compile it into a [shared object](https://www.thegeekstuff.com/2012/06/linux-shared-libraries/). To do this, you can use your favourite compiler. For this demo, we will be using the clang compiler.
+Before we can use the custom model, it must be compiled into a [shared object](https://www.thegeekstuff.com/2012/06/linux-shared-libraries/). To do this, you can use your favourite compiler. For this demo, we will be using the clang compiler.
 
 In a terminal, run the following:
 

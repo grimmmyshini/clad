@@ -36,11 +36,11 @@ namespace clad {
     /// \returns The delta expression of the variable if it is registered,
     /// nullptr otherwise.
     clang::Expr* IsVariableRegistered(const clang::VarDecl* VD);
-    /// \brief Track the variable declaration and utilize it in error 
+    /// Track the variable declaration and utilize it in error 
     /// estimation.
     /// \param[in] VD The declaration to track.
     void AddVarToEstimate(clang::VarDecl* VD, clang::Expr* VDRef);
-    /// \brief User overridden function to return the error expression of a
+    /// User overridden function to return the error expression of a
     /// specific estimation model. The error expression is returned in the form
     /// of a clang::Expr, the user may use BuildOp() to build the final
     /// expression. An example of a possible override is:
@@ -59,7 +59,7 @@ namespace clad {
     /// derivative of the same.
     /// \returns The error expression of the input value.
     virtual clang::Expr* AssignError(StmtDiff refExpr) = 0;
-    /// \brief Initializes errors for '_delta_' statements.
+    /// Initializes errors for '_delta_' statements.
     /// This function returns the initial error assignment. Similar to
     /// AssignError, however, this function is only called during declaration of
     /// variables. This function is separate from AssignError to keep
@@ -77,7 +77,7 @@ namespace clad {
     /// \param[in] decl The declaration to which the error has to be assigned.
     /// \returns The error expression for declaration statements.
     virtual clang::Expr* SetError(clang::VarDecl* decl) = 0;
-    /// \brief Calculate aggregate error from m_EstimateVar.
+    /// Calculate aggregate error from m_EstimateVar.
     /// \returns the final error estimation statement.
     clang::Expr* CalculateAggregateError();
 
@@ -88,7 +88,7 @@ namespace clad {
   class EstimationPlugin {
   public:
     virtual ~EstimationPlugin() {}
-    /// \brief Function that will return the instance of the user registered
+    /// Function that will return the instance of the user registered
     /// custom model.
     /// \param[in] builder A build instance to pass to the custom model
     /// constructor.
@@ -103,7 +103,7 @@ namespace clad {
   template <typename CustomClass>
   class EstimationPluginHelper : public EstimationPlugin {
   public:
-    /// \brief Return an instance of the user defined custom class.
+    /// Return an instance of the user defined custom class.
     /// \param[in] builder The current instance of derivative builder.
     std::unique_ptr<FPErrorEstimationModel>
     InstantiateCustomModel(DerivativeBuilder& builder) override {

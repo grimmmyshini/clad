@@ -7,6 +7,10 @@
 #ifndef CLAD_VISITOR_BASE_H
 #define CLAD_VISITOR_BASE_H
 
+namespace clad {
+  class DerivativeBuilder;
+}
+
 #include "Compatibility.h"
 #include "DerivativeBuilder.h"
 #include "clang/AST/RecursiveASTVisitor.h"
@@ -182,7 +186,7 @@ namespace clad {
       delete oldScope;
     }
 
-    /// \brief  A shorthand to simplify syntax for creation of new expressions.
+    /// A shorthand to simplify syntax for creation of new expressions.
     /// This function uses m_Sema.BuildUnOp internally to build unary 
     /// operations. Typical usage of this function looks like the following:
     /// \n \code
@@ -198,7 +202,7 @@ namespace clad {
     /// \param[in] E The expression to build the unary operation with.
     /// \returns An expression of the newly built unary operation.
     clang::Expr* BuildOp(clang::UnaryOperatorKind OpCode, clang::Expr* E);
-    /// \brief  A shorthand to simplify syntax for creation of new expressions.
+    /// A shorthand to simplify syntax for creation of new expressions.
     /// \n This function uses m_Sema.BuildBin internally to build binary
     /// operations. A typical usage of this function looks like the following:
     /// \n \code
@@ -219,7 +223,7 @@ namespace clad {
 
     clang::Expr* BuildParens(clang::Expr* E);
 
-    /// \brief Builds variable declaration to be used inside the derivative
+    /// Builds variable declaration to be used inside the derivative
     /// body. 
     /// \param[in] Type The type of variable declaration to build.
     /// \param[in] Identifier The identifier information for the variable
@@ -235,7 +239,7 @@ namespace clad {
                                  clang::Expr* Init = nullptr,
                                  bool DirectInit = false,
                                  clang::TypeSourceInfo* TSI = nullptr);
-    /// \brief Builds variable declaration to be used inside the derivative
+    /// Builds variable declaration to be used inside the derivative
     /// body. 
     /// \param[in] Type The type of variable declaration to build.
     /// \param[in] prefix The name of the variable declaration to build.
@@ -257,7 +261,7 @@ namespace clad {
                                              bool isInline);
     /// Rebuild a sequence of nested namespaces ending with DC.
     clang::NamespaceDecl* RebuildEnclosingNamespaces(clang::DeclContext* DC);
-    /// \brief Wraps a declaration in DeclStmt.
+    /// Wraps a declaration in DeclStmt.
     /// \n Variable declaration cannot be added to code directly, instead we 
     /// have to build a declaration staement. 
     /// \param[in] D The declaration to build a declaration statement from.
@@ -272,7 +276,7 @@ namespace clad {
     /// variable declaration. 
     clang::DeclStmt* BuildDeclStmt(llvm::MutableArrayRef<clang::Decl*> DS);
 
-    /// \brief Builds a DeclRefExpr to a given Decl.
+    /// Builds a DeclRefExpr to a given Decl.
     /// \n To emit variables into code, we need to use their corresponding 
     /// declaration reference expressions. This function builds a declaration
     /// reference given a declaration.
