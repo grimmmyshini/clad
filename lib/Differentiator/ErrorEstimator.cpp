@@ -8,7 +8,7 @@
 using namespace clang;
 
 namespace clad {
-  void ErrorEstimationHandler::SetErrorEstimationModelInUse(
+  void ErrorEstimationHandler::SetErrorEstimationModel(
       FPErrorEstimationModel* estModel) {
     m_EstModel = estModel;
   }
@@ -28,10 +28,11 @@ namespace clad {
 
   bool ErrorEstimationHandler::RegisterVariable(VarDecl* VD) {
     // Get the types on the declartion and initalization expression.
-    const Type* varDeclType =
-        VD->getType()->isArrayType()
-            ? VD->getType()->getArrayElementTypeNoTypeQual()
-            : VD->getType().getTypePtr();
+    QualType varDeclBase = VD->getType();
+    const Type *varDeclType =
+        varDeclBase->isArrayType()
+            ? varDeclBase->getArrayElementTypeNoTypeQual()
+            : varDeclBase.getTypePtr();
     const Expr* init = VD->getInit();
     // If declarationg type in not floating point type, we want to do two things.
     if (!varDeclType->isFloatingType()) {
@@ -49,7 +50,7 @@ namespace clad {
             "Lossy assignment from '%0' to '%1', this error will not be "
             "taken into cosideration while estimation",
             {init->IgnoreImpCasts()->getType().getAsString(),
-             VD->getType().getAsString()});
+             varDeclBase.getAsString()});
       // Secondly, we want to only register floating-point types
       // So return false here.
       return false;
@@ -78,9 +79,9 @@ namespace clad {
       return dyn_cast<DeclRefExpr>(expr->IgnoreImplicit());
   }
 
-  Expr* ErrorEstimationHandler::GetParamReplacement(const VarDecl* VD) {
-    auto it = m_paramRepls.find(VD);
-    if (it != m_paramRepls.end())
+  Expr* ErrorEstimationHandler::GetParamReplacement(const ParmVarDecl* VD) {
+    auto it = m_ParamRepls.find(VD);
+    if (it != m_ParamRepls.end())
       return it->second;
     return nullptr;
   }

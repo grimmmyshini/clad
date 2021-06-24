@@ -122,7 +122,7 @@ namespace clad {
     /// \param[in] estModel The error estimation model, can be either
     /// an in-built one (TaylorApprox) or one provided by the user.
     void
-    ResetErrorEstimationModelInUse(std::unique_ptr<FPErrorEstimationModel> estModel);
+    SetErrorEstimationModel(std::unique_ptr<FPErrorEstimationModel> estModel);
     ///\brief Produces the derivative of a given function
     /// according to a given plan.
     ///

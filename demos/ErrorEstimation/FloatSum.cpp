@@ -38,10 +38,10 @@
 // Necessary for clad to work include
 #include "clad/Differentiator/Differentiator.h"
 
-#include <iostream> // Necessary for printing to stdout 
+#include <cmath>    // Necessary for math functions
 #include <fstream>  // Necessary for saving data to plot.
 #include <iomanip>  // Necessary for std::setprecision
-#include <cmath>    // Necessary for math functions
+#include <iostream> // Necessary for printing to stdout
 
 // Repeated addition of finite precision floating point numbers leads to a loss
 // of significance in the results. Hence, here we consider 2 functions, one is

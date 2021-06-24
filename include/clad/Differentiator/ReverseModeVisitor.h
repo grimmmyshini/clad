@@ -169,11 +169,16 @@ namespace clad {
     /// variable and replace E's further usage by a reference to that variable
     /// to avoid recomputiation.
     bool UsefulToStoreGlobal(clang::Expr* E);
-    /// \brief Builds a variable declaration and stores it in the function
+    
+    /// Builds a variable declaration and stores it in the function
     /// global scope.
+    ///
     /// \param[in] Type The type of variable declaration to build.
+    ///
     /// \param[in] prefix The prefix (if any) to the declration name.
+    ///
     /// \param[in] init The variable declaration initializer. 
+    ///
     /// \returns A variable declaration that is already added to the 
     /// global scope.
     clang::VarDecl* GlobalStoreImpl(clang::QualType Type,
@@ -232,17 +237,19 @@ namespace clad {
       clang::Expr* Last();
     };
 
-    /// \brief Make a clad::tape to store variables. 
+    /// Make a clad::tape to store variables. 
     /// If E is supposed to be stored in a tape, will create a global
     /// declaration of tape of corresponding type and return a result struct
     /// with reference to the tape and constructed calls to push/pop methods.
+    ///
     /// \param[in] E The expression to build the tape for.
-    /// \param[in] forEst In case of error estimation  passes, we want to 
-    /// prefix the tape name with '_EERepl_' to distinguish it from other 
-    /// temporary variables.
+    ///
+    /// \param[in] prefix The prefix value for the name of the tape.
+    ///
     /// \returns A struct containg necessary call expressions for the built 
-    /// tape 
-    CladTapeResult MakeCladTapeFor(clang::Expr* E, bool forEst = false);
+    /// tape
+    CladTapeResult MakeCladTapeFor(clang::Expr* E,
+                                   llvm::StringRef prefix = "_t");
 
   public:
     ReverseModeVisitor(DerivativeBuilder& builder);
@@ -292,16 +299,21 @@ namespace clad {
     StmtDiff VisitUnaryOperator(const clang::UnaryOperator* UnOp);
     /// Decl is not Stmt, so it cannot be visited directly.
     VarDeclDiff DifferentiateVarDecl(const clang::VarDecl* VD);
-    /// \brief A helper method to differentiate a single Stmt in the reverse mode.
+
+    /// A helper method to differentiate a single Stmt in the reverse mode.
     /// Internally, calls Visit(S, expr). Its result is wrapped into a
     /// CompoundStmt (if several statements are created) and proper Stmt
     /// order is maintained.
+    ///
     /// \param[in] S The statement to differentiate.
+    ///
     /// \param[in] dfdS The expression to propogate to Visit
+    ///
     /// \param[in] doNotEmit This parameter is error estimation specific 
     /// and tells the function to not emit the accumulated forward/reverse
     /// expressions yet. This is useful in the cases where this function
     /// is called directly and not through VisitCompountStmt
+    ///
     /// \returns The orignal (cloned) and differentiated forms of S 
     StmtDiff DifferentiateSingleStmt(const clang::Stmt* S,
                                      clang::Expr* dfdS = nullptr,

@@ -49,20 +49,12 @@ namespace clad {
   }
 
   ReverseModeVisitor::CladTapeResult
-  ReverseModeVisitor::MakeCladTapeFor(Expr* E, bool forEst) {
+  ReverseModeVisitor::MakeCladTapeFor(Expr* E, llvm::StringRef prefix) {
     assert(E && "must be provided");
     QualType TapeType =
         GetCladTapeOfType(getNonConstType(E->getType(), m_Context, m_Sema));
     LookupResult& Push = GetCladTapePush();
     LookupResult& Pop = GetCladTapePop();
-    std::string namePrefix;
-    // Check if we got a declaration reference.
-    auto declRef = errorEstHandler->GetUnderlyingDeclRefOrNull(E);
-    if (declRef && forEst)
-      namePrefix = "_EERepl_" + declRef->getDecl()->getNameAsString();
-    else
-      namePrefix = "_t";
-    llvm::StringRef prefix = namePrefix;
     Expr* TapeRef = BuildDeclRef(GlobalStoreImpl(TapeType, prefix));
     auto VD = cast<VarDecl>(cast<DeclRefExpr>(TapeRef)->getDecl());
     // Add fake location, since Clang AST does assert(Loc.isValid()) somewhere.
@@ -338,7 +330,6 @@ namespace clad {
     if (m_EstimationInFlight) {
       // Emit error variables of parameters at the end.
       for(size_t i = 0; i < numParams; i++){
-        // FIXME: Find out a "pretty" way to do this for pointer/array types.
         // Right now, we just ignore them since we have no way of knowing 
         // the size of an array.
         if(params[i]->getType()->isArrayType() || params[i]->getType()->isPointerType())
@@ -365,7 +356,8 @@ namespace clad {
         if(deltaVar) {
           // Since we need the input value of x, check for a replacement.
           // If no replacement found, use the actual declRefExpr.
-          auto savedVal = errorEstHandler->GetParamReplacement(decl);
+          auto savedVal = errorEstHandler->GetParamReplacement(
+              dyn_cast<ParmVarDecl>(decl));
           savedVal = savedVal ? savedVal : BuildDeclRef(decl);
           // Finally emit the error.
           auto errorExpr = errorEstHandler->m_EstModel->AssignError(
@@ -1626,7 +1618,7 @@ namespace clad {
             // Register the variable for estimate calculation.
             errorEstHandler->m_EstModel->AddVarToEstimate(Ldecl, deltaVar);
             // Finally, save the old value of the independent param.
-            errorEstHandler->m_paramRepls.emplace(
+            errorEstHandler->m_ParamRepls.emplace(
                 Ldecl,
                 StoreAndRef(LCloned,
                             forward,
@@ -1728,7 +1720,8 @@ namespace clad {
         // If we are inside a loop, we need to create a tape to save the
         // current value of the LHS.
         if (isInsideLoop) {
-          auto tape = MakeCladTapeFor(Ldiff.getExpr());
+          auto tape = MakeCladTapeFor(Ldiff.getExpr(),
+                                      "_EERepl_" + Ldecl->getNameAsString());
           savedExpr = {tape.Push, tape.Pop};
           errorEstHandler->m_ForwardReplStmts.push_back(savedExpr.getExpr());
           // It is nice to save the pop value.
@@ -1921,7 +1914,10 @@ namespace clad {
           StmtDiff savedDecl;
           // If inside a loop, we have to create tape calls.
           if (isInsideLoop) {
-            auto tape = MakeCladTapeFor(BuildDeclRef(VDDiff.getDecl()));
+            auto tape =
+                MakeCladTapeFor(BuildDeclRef(VDDiff.getDecl()),
+                                "_EERepl_" +
+                                    VDDiff.getDecl()->getNameAsString());
             savedDecl = StmtDiff(tape.Push, tape.Pop);
             errorEstHandler->m_ForwardReplStmts.push_back(savedDecl.getExpr());
             // Nice to store pop values becuase user might refer to getExpr

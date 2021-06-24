@@ -109,7 +109,7 @@ namespace clad {
     return { returnedFD, enclosingNS };
   }
 
-  void DerivativeBuilder::ResetErrorEstimationModelInUse(
+  void DerivativeBuilder::SetErrorEstimationModel(
       std::unique_ptr<FPErrorEstimationModel> estModel) {
     m_EstModel = std::move(estModel);
   }
@@ -149,12 +149,12 @@ namespace clad {
       if (!m_EstModel){
         m_EstModel.reset(new TaylorApprox(*this));
       }
-      errorEstHandler->SetErrorEstimationModelInUse(m_EstModel.get()); 
+      errorEstHandler->SetErrorEstimationModel(m_EstModel.get()); 
       // Finally call calculate to begin estimation.
       result = errorEstHandler->Calculate(FD, request);
       // Once we are done, we want to clear the model for any further
       // calls to estimate_error.
-      m_EstModel->clearModel();
+      m_EstModel->clearEstimationVariables();
     }
 
     if (result.first)

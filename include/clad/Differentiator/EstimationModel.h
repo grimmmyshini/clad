@@ -2,6 +2,7 @@
 #define CLAD_ESTIMATION_MODEL_H
 
 #include "VisitorBase.h"
+
 #include <unordered_map>
 
 namespace clang {
@@ -17,7 +18,7 @@ namespace clad {
 
 namespace clad {
 
-  /// A class to facilitate usage of user defined error estimation models.
+  /// A base class for user defined error estimation models.
   class FPErrorEstimationModel : public VisitorBase {
   protected:
     /// Map to keep track of the error estimate variables for each declaration
@@ -27,23 +28,31 @@ namespace clad {
   public:
     FPErrorEstimationModel(DerivativeBuilder& builder) : VisitorBase(builder) {}
     virtual ~FPErrorEstimationModel();
+
     /// Clear the variable estimate map so that we can start afresh.
-    void clearModel() {
+    void clearEstimationVariables() {
       m_EstimateVar.clear();
     }
+
     /// Check if a variable is registered for estimation.
+    ///
     /// \param[in] VD The variable to check.
+    ///
     /// \returns The delta expression of the variable if it is registered,
     /// nullptr otherwise.
     clang::Expr* IsVariableRegistered(const clang::VarDecl* VD);
+    
     /// Track the variable declaration and utilize it in error 
     /// estimation.
+    ///
     /// \param[in] VD The declaration to track.
     void AddVarToEstimate(clang::VarDecl* VD, clang::Expr* VDRef);
+    
     /// User overridden function to return the error expression of a
     /// specific estimation model. The error expression is returned in the form
     /// of a clang::Expr, the user may use BuildOp() to build the final
     /// expression. An example of a possible override is:
+    ///
     /// \n \code
     /// clang::Expr*
     /// AssignError(clad::StmtDiff* refExpr) {
@@ -57,8 +66,10 @@ namespace clad {
     /// has to be assigned, this is a StmtDiff type hence one can use getExpr()
     /// to get the unmodified expression and getExpr_dx() to get the absolute
     /// derivative of the same.
+    ///
     /// \returns The error expression of the input value.
     virtual clang::Expr* AssignError(StmtDiff refExpr) = 0;
+    
     /// Initializes errors for '_delta_' statements.
     /// This function returns the initial error assignment. Similar to
     /// AssignError, however, this function is only called during declaration of
@@ -75,9 +86,12 @@ namespace clad {
     /// declaration of input decl.
     ///
     /// \param[in] decl The declaration to which the error has to be assigned.
+    ///
     /// \returns The error expression for declaration statements.
     virtual clang::Expr* SetError(clang::VarDecl* decl) = 0;
+    
     /// Calculate aggregate error from m_EstimateVar.
+    ///
     /// \returns the final error estimation statement.
     clang::Expr* CalculateAggregateError();
 
@@ -99,11 +113,13 @@ namespace clad {
   };
 
   /// A class used to register custom plugins.
+  ///
   /// \tparam The custom user class.
   template <typename CustomClass>
   class EstimationPluginHelper : public EstimationPlugin {
   public:
     /// Return an instance of the user defined custom class.
+    ///
     /// \param[in] builder The current instance of derivative builder.
     std::unique_ptr<FPErrorEstimationModel>
     InstantiateCustomModel(DerivativeBuilder& builder) override {
