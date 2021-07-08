@@ -2,6 +2,7 @@
 #define CLAD_ERROR_ESTIMATOR_H
 
 #include "EstimationModel.h"
+#include "ReverseModeVisitor.h"
 
 namespace clang {
   class Stmt;
@@ -14,16 +15,9 @@ namespace clang {
 } // namespace clang
 
 namespace clad {
-  struct DiffRequest;
-  class VisitorBase;
-  class DerivativeBuilder;
-  class FPErrorEstimationModel;
-} // namespace clad
-
-namespace clad {
   /// The estimation handler which interfaces with Clad's reverse mode visitors
   /// to fetch derivatives.
-  class ErrorEstimationHandler {
+  class ErrorEstimationHandler : public ReverseModeVisitor {
     /// Keeps a track of the delta error expression we shouldn't emit.
     bool m_DoNotEmitDelta = false;
     /// Reference to the final error parameter in the augumented target
@@ -31,11 +25,6 @@ namespace clad {
     clang::Expr* m_FinalError;
     /// Reference to the return error expression.
     clang::Expr* m_RetErrorExpr = nullptr;
-    /// A reference to the builder instance so that we can call Derive.
-    DerivativeBuilder& m_builder;
-    /// An instance of visitor base to utilize all functionalities from the 
-    /// same since we do not derive from it.
-    VisitorBase m_VBase;
     /// An instance of the custom error estimation model to be used.
     FPErrorEstimationModel* m_EstModel; // We do not own this.
     /// A set of assignments resulting for declaration statments.
@@ -47,7 +36,7 @@ namespace clad {
 
   public:
     ErrorEstimationHandler(DerivativeBuilder& builder)
-        : m_builder(builder), m_VBase(VisitorBase(builder)) {}
+        : ReverseModeVisitor(builder) {}
     ~ErrorEstimationHandler() {}
     
     /// Function to set the error estimation model currently in use.
@@ -55,20 +44,67 @@ namespace clad {
     /// \param[in] estModel The error estimation model, can be either
     /// an in-built one (TaylorApprox) or one provided by the user.
     void SetErrorEstimationModel(FPErrorEstimationModel* estModel);
-    
-    /// Function to calculate the estimated error in a function.
-    /// This function internally calls ReverseModeVisitor::Derive.
+
+    /// \param[in] finErrExpr The final error expression.
+    void SetFinalErrorExpr(clang::Expr* finErrExpr) {
+      m_FinalError = finErrExpr;
+    }
+
+    /// \returns The final error expression so far.
+    clang::Expr* GetFinalErrorExpr() { return m_FinalError; }
+
+    /// Function to build the final error statemnt of the function. This is the
+    /// last statement of any target function in error estimation and
+    /// aggregates the error in all the registered variables.
+    void BuildFinalErrorStmt();
+
+    /// Function to emit error statements into the derivative body.
     ///
-    /// \param[in] FD Function declaration on which estimation is performed.
+    /// \param[in] var The variable whose error statement we want to emit.
+    /// \param[in] deltaVar The "_delta_" expression of the variable 'var'.
+    /// \param[in] errorExpr The error expression (LHS) of the variable 'var'.
+    /// \param[in] isInsideLoop A flag to indicate if 'val' is inside a loop.
+    void AddErrorStmtToBlock(clang::Expr *var, clang::Expr *deltaVar,
+                             clang::Expr *errorExpr, bool isInsideLoop =false);
+
+    /// Emit the error estimation related statements that were saved to be
+    /// emitted at later points into specific blocks.
     ///
-    /// \param[in] request The meta information about the kind of
-    /// differentiation to be used for estimation.
+    /// \param[in] d The direction of the block in which to emit the 
+    /// statements.
+    void EmitErrorEstimationStmts(direction d = forward);
+
+    /// We should save the return value if it is an arithmetic expression,
+    /// since we also need to take into account the error in that expression.
     ///
-    /// \returns the new derivative function augmented with estimation code
-    /// and its potential enclosing context.
-    DeclWithContext Calculate(const clang::FunctionDecl* FD,
-                              const DiffRequest& request);
-    
+    /// \param[in] retExpr The return expression.
+    /// \param[in] retDeclRefExpr The temporary value in which the return
+    /// expression is stored.
+    void SaveReturnExpr(clang::Expr* retExpr,
+                        clang::DeclRefExpr* retDeclRefExpr);
+
+    /// Emit the error for parameters of nested functions.
+    ///
+    /// \param[in] fnDecl The function declaration of the nested function.
+    /// \param[in] arg A pair of the orignal arg and it's derivative.
+    void EmitNestedFunctionParamError(clang::FunctionDecl *fnDecl,
+                                      StmtDiff arg);
+
+    /// Save values of registered variables so that they can be replaced
+    /// properly in case of re-assignments.
+    ///
+    /// \param[in] val The value to save.
+    /// \param[in] isInsideLoop A flag to indicate if 'val' is inside a loop.
+    ///
+    /// \returns The saved variable and its derivative.
+    StmtDiff SaveValue(clang::Expr* val, bool isInLoop = false);
+
+    /// Save the orignal values of the input parameters in case of 
+    /// re-assignments.
+    ///
+    /// \param[in] paramRef The DeclRefExpr of the input parameter.
+    void SaveParamValue(clang::DeclRefExpr *paramRef);
+
     /// Register variables to be used while accumulating error.
     /// Register variable declarations so that they may be used while
     /// calculating the final error estimates. Any unregistered variables will
@@ -77,7 +113,14 @@ namespace clad {
     /// \param[in] VD The variable declaration to be registered.
     ///
     /// \returns The Variable declaration of the '_delta_' prefixed variable.
-    bool RegisterVariable(clang::VarDecl* VD);
+    clang::Expr* RegisterVariable(clang::VarDecl* VD);
+
+    /// Checks if a variable can be registered for error estimation.
+    ///
+    /// \param[in] VD The variable declaration to be registered.
+    ///
+    /// \returns True if the variable can be registered, false otherwise.
+    bool CanRegisterVariable(clang::VarDecl* VD);
     
     /// Calculate aggregate error from m_EstimateVar.
     /// Builds the final error estimation statement.
@@ -98,7 +141,25 @@ namespace clad {
     /// \returns The underlying replaced Expr.
     clang::Expr* GetParamReplacement(const clang::ParmVarDecl* VD);
 
-    friend class ReverseModeVisitor;
+    /// An abstraction of the error estimation model's AssignError.
+    ///
+    /// \param[in] val The variable to get the error for.
+    /// \param[in] valDiff The derivative of the variable 'var'
+    ///
+    /// \returns The error in the variable 'var'.
+    clang::Expr* GetError(clang::Expr* var, clang::Expr* varDiff){
+      return m_EstModel->AssignError({var, varDiff});
+    }
+
+    /// An abstraction of the error estimation model's IsVariableRegistered.
+    ///
+    /// \param[in] VD The variable declaration to check the status of.
+    ///
+    /// \returns the reference to the respective '_delta_' expression if the 
+    /// variable is registered, null otherwise.
+    clang::Expr* IsRegistered(clang::VarDecl* VD){
+      return m_EstModel->IsVariableRegistered(VD);
+    }
   };
 
 } // namespace clad

@@ -538,7 +538,6 @@ namespace clad {
           std::is_class<remove_reference_and_pointer_t<F>>::value>::type> {
     using type = remove_reference_and_pointer_t<F>;
   };
-  #endif
 
   // ExtractEstDerivedFnTraits is used to deduce type of the derived functions 
   // derived using error_estimation mode

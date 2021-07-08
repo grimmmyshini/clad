@@ -150,8 +150,8 @@ namespace clad {
         m_EstModel.reset(new TaylorApprox(*this));
       }
       errorEstHandler->SetErrorEstimationModel(m_EstModel.get()); 
-      // Finally call calculate to begin estimation.
-      result = errorEstHandler->Calculate(FD, request);
+      // Finally begin estimation.
+      result = errorEstHandler->Derive(FD, request);
       // Once we are done, we want to clear the model for any further
       // calls to estimate_error.
       m_EstModel->clearEstimationVariables();

@@ -20,12 +20,12 @@ float func(float x, float y){
 
 // CHECK: void func_grad(float x, float y, float *_result, double &_final_error) {
 // CHECK-NEXT:     bool _cond0;
-// CHECK-NEXT:     float _delta_y = 0;
+// CHECK-NEXT:     double _delta_y = 0;
 // CHECK-NEXT:     float _t0;
 // CHECK-NEXT:     float _t1;
 // CHECK-NEXT:     float _EERepl_y1;
 // CHECK-NEXT:     double _delta_temp = 0;
-// CHECK-NEXT:     double _EERepl_temp0;
+// CHECK-NEXT:     float _EERepl_temp0;
 // CHECK-NEXT:     float _d_temp = 0;
 // CHECK-NEXT:     float _t2;
 // CHECK-NEXT:     float _t3;
@@ -82,7 +82,7 @@ float func(float x, float y){
 // CHECK-NEXT:         }
 // CHECK-NEXT:         _result[1UL] += _d_temp;
 // CHECK-NEXT:     }
-// CHECK-NEXT:     float _delta_x = 0;
+// CHECK-NEXT:     double _delta_x = 0;
 // CHECK-NEXT:     _delta_x += _result[0UL] * x * {{.+}};
 // CHECK-NEXT:     _delta_y += _result[1UL] * _EERepl_y0 * {{.+}};
 // CHECK-NEXT:     _final_error += _delta_{{x|y|temp}} + _delta_{{x|y|temp}} + _delta_{{x|y|temp}} + 1. * _ret_value0 * {{.+}};
@@ -101,7 +101,7 @@ float func2(float x){
 // CHECK-NEXT:     float _t0;
 // CHECK-NEXT:     float _t1;
 // CHECK-NEXT:     double _delta_z = 0;
-// CHECK-NEXT:     double _EERepl_z0;
+// CHECK-NEXT:     float _EERepl_z0;
 // CHECK-NEXT:     float _d_z = 0;
 // CHECK-NEXT:     bool _cond0;
 // CHECK-NEXT:     double _ret_value0 = 0;
@@ -144,7 +144,7 @@ float func2(float x){
 // CHECK-NEXT:         _result[0UL] += _r1;
 // CHECK-NEXT:         _delta_z += _d_z * _EERepl_z0 * {{.+}};
 // CHECK-NEXT:     }
-// CHECK-NEXT:     float _delta_x = 0;
+// CHECK-NEXT:     double _delta_x = 0;
 // CHECK-NEXT:     _delta_x += _result[0UL] * x * {{.+}};
 // CHECK-NEXT:     _final_error += _delta_{{x|z}} + _delta_{{x|z}} + 1. * _ret_value0 * {{.+}};
 // CHECK-NEXT: }
@@ -177,9 +177,9 @@ float func3(float x, float y){
 // CHECK-NEXT:         _result[0UL] += 1;
 // CHECK-NEXT:         _result[1UL] += 1;
 // CHECK-NEXT:     }
-// CHECK-NEXT:     float _delta_x = 0;
+// CHECK-NEXT:     double _delta_x = 0;
 // CHECK-NEXT:     _delta_x += _result[0UL] * x * {{.+}};
-// CHECK-NEXT:     float _delta_y = 0;
+// CHECK-NEXT:     double _delta_y = 0;
 // CHECK-NEXT:     _delta_y += _result[1UL] * y * {{.+}};
 // CHECK-NEXT:     _final_error += _delta_{{x|y}} + _delta_{{x|y}} + 1. * _ret_value0 * {{.+}};
 // CHECK-NEXT: }
@@ -192,7 +192,7 @@ float func4(float x, float y){
 
 // CHECK: void func4_grad(float x, float y, float *_result, double &_final_error) {
 // CHECK-NEXT:     bool _cond0;
-// CHECK-NEXT:     float _delta_x = 0;
+// CHECK-NEXT:     double _delta_x = 0;
 // CHECK-NEXT:     float _EERepl_x1;
 // CHECK-NEXT:     float _t0;
 // CHECK-NEXT:     float _t1;
@@ -236,7 +236,7 @@ float func4(float x, float y){
 // CHECK-NEXT:         _result[0UL] -= _r_d1;
 // CHECK-NEXT:     }
 // CHECK-NEXT:     _delta_x += _result[0UL] * _EERepl_x0 * {{.+}};
-// CHECK-NEXT:     float _delta_y = 0;
+// CHECK-NEXT:     double _delta_y = 0;
 // CHECK-NEXT:     _delta_y += _result[1UL] * y * {{.+}};
 // CHECK-NEXT:     _final_error += _delta_{{x|y}} + _delta_{{x|y}} + 1. * _ret_value0 * {{.+}};
 // CHECK-NEXT: }

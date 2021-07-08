@@ -26,7 +26,7 @@ namespace clad {
   private:
     /// Determines if an error estimation is in process; helps decide whether
     /// to visit error estimation specific code in calls to VisitStmt
-    bool m_EstimationInFlight = false;
+    bool m_ErrorEstimationEnabled = false;
     llvm::SmallVector<const clang::VarDecl*, 16> m_IndependentVars;
     /// In addition to a sequence of forward-accumulated Stmts (m_Blocks), in
     /// the reverse mode we also accumulate Stmts for the reverse pass which
@@ -134,6 +134,13 @@ namespace clad {
       return addToBlock(S, getCurrentBlock(d));
     }
 
+    /// Adds a given statement to the global block.
+    ///
+    /// \param[in] S The statement to add to the block.
+    ///
+    /// \returns True if the statement was added to the block, false otherwise.
+    bool AddToGlobalBlock(clang::Stmt* S) { return addToBlock(S, m_Globals); }
+    
     /// Stores the result of an expression in a temporary variable (of the same
     /// type as is the result of the expression) and returns a reference to it.
     /// If force decl creation is true, this will allways create a temporary
@@ -317,7 +324,7 @@ namespace clad {
     /// \returns The orignal (cloned) and differentiated forms of S 
     StmtDiff DifferentiateSingleStmt(const clang::Stmt* S,
                                      clang::Expr* dfdS = nullptr,
-                                     bool doNotEmit = false);
+                                     bool shouldEmit = true);
     /// A helper method used to keep substatements created by Visit(E, expr) in
     /// separate forward/reverse blocks instead of putting them into current
     /// blocks. First result is a StmtDiff of forward/reverse blocks with

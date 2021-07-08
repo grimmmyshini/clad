@@ -16,7 +16,7 @@ float func(float *p, int n){
 
 // CHECK: void func_grad(float *p, int n, float *_result, double &_final_error) {
 // CHECK-NEXT:     double _delta_sum = 0;
-// CHECK-NEXT:     double _EERepl_sum0;
+// CHECK-NEXT:     float _EERepl_sum0;
 // CHECK-NEXT:     float _d_sum = 0;
 // CHECK-NEXT:     unsigned long _t0;
 // CHECK-NEXT:     int _d_i = 0;
@@ -60,7 +60,7 @@ float func2(float x){
 
 // CHECK: void func2_grad(float x, float *_result, double &_final_error) {
 // CHECK-NEXT:     double _delta_z = 0;
-// CHECK-NEXT:     double _EERepl_z0;
+// CHECK-NEXT:     float _EERepl_z0;
 // CHECK-NEXT:     float _d_z = 0;
 // CHECK-NEXT:     unsigned long _t0;
 // CHECK-NEXT:     int _d_i = 0;
@@ -102,14 +102,78 @@ float func2(float x){
 // CHECK-NEXT:             _delta_m += _d_m * _r2 * {{.+}};
 // CHECK-NEXT:         }
 // CHECK-NEXT:     }
-// CHECK-NEXT:     float _delta_x = 0;
+// CHECK-NEXT:     double _delta_x = 0;
 // CHECK-NEXT:     _delta_x += _result[0UL] * x * {{.+}};
 // CHECK-NEXT:     _final_error += _delta_{{x|z|m}} + _delta_{{x|z|m}} + _delta_{{x|z|m}};
 // CHECK-NEXT: }
+
+float func3(float x, float y) {
+  double arr[3];
+  arr[0] = x + y;
+  arr[1] = x * x;
+  arr[2] = arr[0] + arr[1];
+  return arr[2];
+}
+
+// CHECK: void func3_grad(float x, float y, float *_result, double &_final_error) {
+// CHECK-NEXT:     double _delta_arr[3] = {};
+// CHECK-NEXT:     double _d_arr[3] = {};
+// CHECK-NEXT:     double _EERepl_arr0;
+// CHECK-NEXT:     float _t0;
+// CHECK-NEXT:     float _t1;
+// CHECK-NEXT:     double _EERepl_arr1;
+// CHECK-NEXT:     double _EERepl_arr2;
+// CHECK-NEXT:     double arr[3];
+// CHECK-NEXT:     arr[0] = x + y;
+// CHECK-NEXT:     _EERepl_arr0 = arr[0];
+// CHECK-NEXT:     _t1 = x;
+// CHECK-NEXT:     _t0 = x;
+// CHECK-NEXT:     arr[1] = _t1 * _t0;
+// CHECK-NEXT:     _EERepl_arr1 = arr[1];
+// CHECK-NEXT:     arr[2] = arr[0] + arr[1];
+// CHECK-NEXT:     _EERepl_arr2 = arr[2];
+// CHECK-NEXT:     double func3_return = arr[2];
+// CHECK-NEXT:     goto _label0;
+// CHECK-NEXT:   _label0:
+// CHECK-NEXT:     _d_arr[2] += 1;
+// CHECK-NEXT:     {
+// CHECK-NEXT:         double _r_d2 = _d_arr[2];
+// CHECK-NEXT:         _d_arr[0] += _r_d2;
+// CHECK-NEXT:         _d_arr[1] += _r_d2;
+// CHECK-NEXT:         _delta_arr[2] += _r_d2 * _EERepl_arr2 * {{.+}};
+// CHECK-NEXT:         _final_error += _delta_arr[2];
+// CHECK-NEXT:         _d_arr[2] -= _r_d2;
+// CHECK-NEXT:     }
+// CHECK-NEXT:     {
+// CHECK-NEXT:         double _r_d1 = _d_arr[1];
+// CHECK-NEXT:         double _r0 = _r_d1 * _t0;
+// CHECK-NEXT:         _result[0UL] += _r0;
+// CHECK-NEXT:         double _r1 = _t1 * _r_d1;
+// CHECK-NEXT:         _result[0UL] += _r1;
+// CHECK-NEXT:         _delta_arr[1] += _r_d1 * _EERepl_arr1 * {{.+}};
+// CHECK-NEXT:         _final_error += _delta_arr[1];
+// CHECK-NEXT:         _d_arr[1] -= _r_d1;
+// CHECK-NEXT:     }
+// CHECK-NEXT:     {
+// CHECK-NEXT:         double _r_d0 = _d_arr[0];
+// CHECK-NEXT:         _result[0UL] += _r_d0;
+// CHECK-NEXT:         _result[1UL] += _r_d0;
+// CHECK-NEXT:         _delta_arr[0] += _r_d0 * _EERepl_arr0 * {{.+}};
+// CHECK-NEXT:         _final_error += _delta_arr[0];
+// CHECK-NEXT:         _d_arr[0] -= _r_d0;
+// CHECK-NEXT:     }
+// CHECK-NEXT:     double _delta_x = 0;
+// CHECK-NEXT:     _delta_x += _result[0UL] * x * {{.+}};
+// CHECK-NEXT:     double _delta_y = 0;
+// CHECK-NEXT:     _delta_y += _result[1UL] * y * {{.+}};
+// CHECK-NEXT:     _final_error += _delta_{{y|x}} + _delta_{{y|x}};
+// CHECK-NEXT: }
+
 
 int main(){
 
   clad::estimate_error(func);
   clad::estimate_error(func2);
+  clad::estimate_error(func3);
 
 }
